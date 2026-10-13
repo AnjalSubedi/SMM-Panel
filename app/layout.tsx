@@ -10,8 +10,8 @@ const geist = localFont({ src: "../node_modules/next/dist/next-devtools/server/f
 const geistMono = localFont({ src: "../node_modules/next/dist/next-devtools/server/font/geist-mono-latin.woff2", variable: "--font-geist-mono", weight: "100 900", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Digital Marketing NP | Growth for Nepali Creators & Brands",
-  description: "Audience acquisition, page monetization, and transparent NPR pricing for Nepali creators and brands. Browse growth bundles and build your order.",
+  title: "Digital Marketing NP | Social Media Services in Nepal",
+  description: "Compare social media followers, views, likes and watch-time services. See prices in NPR and pay with eSewa or your account wallet.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

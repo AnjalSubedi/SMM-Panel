@@ -55,7 +55,7 @@ async function main() {
     await call('Page.navigate', { url: process.env.QA_URL || 'http://localhost:3000' });
     let ready = false;
     for (let attempt = 0; attempt < 40; attempt++) {
-      ready = await evaluate(`!!document.querySelector('#service-platform') && document.body.textContent.includes('Service catalog operational') && !document.querySelector('header .animate-pulse')`);
+      ready = await evaluate(`!!document.querySelector('#service-platform') && document.querySelectorAll('#packages article').length === 4 && !document.querySelector('header .animate-pulse')`);
       if (ready) break;
       await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -152,13 +152,13 @@ async function main() {
     await setSelect('#service-platform', 'Instagram');
     assert.equal(await evaluate(`document.querySelector('#service-category').value`), '');
     assert.equal(await evaluate(`document.querySelector('#quantity') === null`), true);
-    await setSelect('#service-category', 'Auto-likes subscriptions');
+    await setSelect('#service-category', 'Likes for future posts');
     await setSelect('#service-boost', 'IG_05');
     assert.equal(await evaluate(`document.querySelector('#quantity').readOnly`), true);
     assert.equal(await evaluate(`document.querySelector('#quantity').value`), '1');
     assert.match(await evaluate(`document.querySelector('aside [aria-live]').textContent`), /1,199/);
     await setSelect('#service-platform', 'YouTube');
-    await setSelect('#service-category', 'Watch time & monetization');
+    await setSelect('#service-category', 'Watch time');
     await setSelect('#service-boost', 'YT_06');
     assert.match(await evaluate(`document.querySelector('aside [aria-live]').textContent`), /3,499/);
     await setSelect('#service-category', 'Followers & subscribers');
@@ -181,6 +181,6 @@ async function main() {
     result.push('Sticky header and overflow-free layouts at 320, 390, 768 and 1440px');
     assert.deepEqual(errors, [], 'Browser errors');
     console.log(JSON.stringify({ passed: result, screenshots: '.qa/', runtimeErrors: errors }, null, 2));
-  } finally { await call('Page.close'); socket.close(); }
+  } finally { socket.close(); await fetch('http://localhost:9223/json/close/' + target.id); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,4 +1,5 @@
 import { COMBO_PACKAGES } from "../config/catalogData";
+import { bundleCopy } from "./customerCopy";
 
 export type CatalogItem = {
   id: string;
@@ -48,12 +49,12 @@ export const packages: readonly CatalogItem[] = COMBO_PACKAGES.map((bundle, inde
   id: bundle.id,
   kind: "package" as const,
   packageCode: String.fromCharCode(65 + index),
-  name: bundle.name,
+  name: bundleCopy[bundle.id]?.name ?? bundle.name,
   price: bundle.priceNpr,
-  badge: bundle.badge,
-  target: bundle.target,
+  badge: bundleCopy[bundle.id]?.badge ?? bundle.badge,
+  target: bundleCopy[bundle.id]?.target ?? bundle.target,
   apiSteps: bundle.apiSteps,
-  inclusions: bundle.features,
+  inclusions: bundleCopy[bundle.id]?.inclusions ?? bundle.features,
 }));
 
 export function inferPlatform(category: string, name: string): string {
@@ -101,6 +102,6 @@ export function buildOrderSummary(item: CatalogItem, settlement = "Direct eSewa"
     "Digital Marketing NP - Order Inquiry",
     item.kind === "package" ? `Package ${item.packageCode}: ${item.name}` : item.name,
     ...serviceDetails,
-    `Settlement: ${settlement}`,
+    `Payment method: ${settlement}`,
   ].join("\n");
 }

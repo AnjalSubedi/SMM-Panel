@@ -25,7 +25,7 @@ test("notifications isolate accounts and preserve read status across payment and
     const topup = await requestTopup({ amount: 500, reference: "NOTIFY-" + randomUUID(), requestKey: randomUUID() }, a);
     const pending = await notificationData(a);
     assert.equal(pending.unreadCount, 1);
-    assert.match(pending.items[0].title, /under review/);
+    assert.match(pending.items[0].title, /being checked/);
     assert.equal((await notificationData(b)).items.length, 0);
     await assert.rejects(markNotificationsRead({ ids: [pending.items[0].id] }, b), /not found/);
     assert.equal((await markNotificationsRead({ ids: [pending.items[0].id] }, a)).unreadCount, 0);

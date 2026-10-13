@@ -27,7 +27,7 @@ export default function Brand() {
           <span>Marketing <span className="text-blue-600">NP</span></span>
         </span>
         <span className="mt-1.5 hidden text-[8px] font-semibold uppercase tracking-[0.16em] text-slate-500 min-[400px]:block sm:text-[9px]">
-          Social growth &amp; monetization
+          Social media services in Nepal
         </span>
       </span>
     </a>

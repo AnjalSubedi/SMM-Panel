@@ -5,15 +5,16 @@ import { getDb, many, transaction } from "./db";
 import { AppError } from "./errors";
 import type { AccountUser, OrderRecord, PaymentRecord } from "../account-types";
 import type { AccountNotification, NotificationData } from "../notification-types";
+import { customerItemName } from "../customerCopy";
 
 export const notificationReadSchema = z.object({ ids: z.array(z.string().regex(/^[a-f0-9]{64}$/)).min(1).max(100) }).strict();
 const idFor = (...parts: string[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const amount = (paisa: number) => "NPR " + (paisa / 100).toLocaleString("en-NP", { maximumFractionDigits: 2 });
 const orderMessages: Record<string, [string, string]> = {
-  awaiting_payment: ["Order payment under review", "We received your payment reference. Your order will move forward after verification."],
+  awaiting_payment: ["Order payment under review", "We’ve received your payment details. Our team will check the payment before your order starts."],
   payment_rejected: ["Order payment needs attention", "Your payment was not approved. Review the payment details or contact support."],
-  awaiting_delivery: ["Payment confirmed. Choose delivery timing", "Your order is paid. Choose default or gradual delivery to release it to the queue."],
-  queued: ["Your order is queued", "Your paid order is waiting for dispatch."],
+  awaiting_delivery: ["Payment confirmed. Choose delivery timing", "Your payment is confirmed. Open My orders and choose the usual speed or delivery spread over time."],
+  queued: ["Your order is waiting to start", "Your payment is confirmed. We’re arranging delivery."],
   processing: ["Your order is in progress", "Delivery has started. Check your order for the latest details."],
   completed: ["Your order is complete", "Delivery has been marked complete. Thank you for choosing Digital Marketing NP."],
 };
@@ -27,11 +28,11 @@ export async function notificationData(user: AccountUser): Promise<NotificationD
   for (const order of orders) {
     const message = orderMessages[order.status];
     if (!message) continue;
-    items.push({ id: idFor("order", order.id, order.status, order.updatedAt), kind: "order", title: message[0], description: order.itemName + ". " + message[1], href: "/account#order-" + encodeURIComponent(order.id), createdAt: order.updatedAt, read: false });
+    items.push({ id: idFor("order", order.id, order.status, order.updatedAt), kind: "order", title: message[0], description: customerItemName(order.itemId, order.itemName) + ". " + message[1], href: "/account#order-" + encodeURIComponent(order.id), createdAt: order.updatedAt, read: false });
   }
   for (const payment of payments) {
-    const title = payment.status === "approved" ? "Funds added to your wallet" : payment.status === "rejected" ? "Wallet deposit needs attention" : "Wallet deposit under review";
-    const description = payment.status === "approved" ? amount(payment.amountPaisa) + " has been credited to your wallet." : payment.status === "rejected" ? "Your " + amount(payment.amountPaisa) + " deposit was not approved. Check its payment review for details." : "Your " + amount(payment.amountPaisa) + " deposit is awaiting payment verification.";
+    const title = payment.status === "approved" ? "Funds added to your wallet" : payment.status === "rejected" ? "Wallet payment needs attention" : "Wallet payment being checked";
+    const description = payment.status === "approved" ? amount(payment.amountPaisa) + " has been added to your wallet." : payment.status === "rejected" ? "Your " + amount(payment.amountPaisa) + " payment was not approved. Check your payment history for details." : "Your " + amount(payment.amountPaisa) + " payment is being checked by our team.";
     const createdAt = payment.reviewedAt || payment.createdAt;
     items.push({ id: idFor("wallet", payment.id, payment.status, createdAt), kind: "wallet", title, description, href: "/account#payment-" + encodeURIComponent(payment.id), createdAt, read: false });
   }

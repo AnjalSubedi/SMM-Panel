@@ -77,11 +77,11 @@ async function main() {
     const reference = ('BROWSER-DEPOSIT-' + randomUUID()).toUpperCase();
     await set('#deposit-reference', reference);
     await evaluate("document.querySelector('#add-funds form button:not([type])').click()");
-    await waitFor("document.body.textContent.includes('Deposit submitted for review')");
+    await waitFor("document.body.textContent.includes('Payment details received')");
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 0);
     assert.equal(await evaluate("fetch('/api/admin').then(r=>r.status)"), 403);
     await evaluate("document.querySelector('button[data-notification-trigger]').click()");
-    await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open') && document.querySelector('[data-notification-popover]').textContent.includes('Wallet deposit under review')");
+    await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open') && document.querySelector('[data-notification-popover]').textContent.includes('Wallet payment being checked')");
     assert.equal(await evaluate("location.pathname"), '/account');
     assert.equal(await evaluate("document.querySelector('button[data-notification-trigger]').getAttribute('aria-label')"), 'Notifications, 1 unread', 'Opening does not automatically mark updates as read');
     await screenshot('notification-popup-unread');
@@ -91,9 +91,9 @@ async function main() {
     await waitFor("document.querySelector('[data-notification-popover]').textContent.includes('all caught up')");
     await evaluate("document.querySelector('[data-notification-popover] a[href=\"/account/notifications\"]').click()");
     await waitFor("location.pathname === '/account/notifications'");
-    await waitFor("document.querySelector('main').textContent.includes('Wallet deposit under review')");
+    await waitFor("document.querySelector('main').textContent.includes('Wallet payment being checked')");
     await screenshot('notifications-unread');
-    await go('/account/notifications', "document.body.textContent.includes('Wallet deposit under review')");
+    await go('/account/notifications', "document.body.textContent.includes('Wallet payment being checked')");
     assert.equal(await evaluate("document.querySelector('button[data-notification-trigger]').getAttribute('aria-label')"), 'Notifications', 'Read badge remains cleared after navigation');
     await click('Unread'); await waitFor("document.body.textContent.includes('all caught up')");
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
@@ -209,6 +209,6 @@ async function main() {
     await waitFor(`[...document.querySelectorAll('article')].find(a=>a.textContent.includes(${JSON.stringify(directId)}))?.textContent.includes('In progress')`);
     assert.deepEqual(errors, []);
     console.log('Browser checks passed: real registration/login/logout, deposit review, admin approval, wallet debit, direct order, account history, saved checkout after login, admin authorization and responsive account layout, payment-gated gradual/default delivery selection, exact batch preview and unchanged wallet balance.');
-  } finally { await call('Page.close'); socket.close(); }
+  } finally { socket.close(); await fetch('http://localhost:9223/json/close/' + target.id); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
