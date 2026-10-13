@@ -47,7 +47,7 @@ export default function AccountProvider({ children }: { children: ReactNode }) {
     if (!userId || !ids.length) return;
     controller.current?.abort();
     try {
-      const response = await fetch("/api/account/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+      const response = await fetch("/api/account/notifications", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
       if (!response.ok) throw new Error("Unable to mark notifications as read. Please try again.");
       const data: NotificationData = await response.json();
       if (owner.current === userId) { setSnapshot({ userId, data }); setError(""); }

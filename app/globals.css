@@ -42,3 +42,5 @@ button:not(:disabled), a { cursor: pointer; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.notification-popover:popover-open { display: flex; flex-direction: column; }

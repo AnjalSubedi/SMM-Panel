@@ -24,7 +24,7 @@ async function main() {
   const settle = () => evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const go = async (pathname, ready) => { await call('Page.navigate', { url: base + pathname }); await waitFor(ready); await waitFor("!!document.querySelector('header') && !document.querySelector('header .animate-pulse')"); await settle(); };
   const set = async (selector, value, select = false) => { await evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(${select ? 'HTMLSelectElement' : 'HTMLInputElement'}.prototype,'value').set.call(e,${JSON.stringify(String(value))});e.dispatchEvent(new Event('${select ? 'change' : 'input'}',{bubbles:true}));})()`); await settle(); };
-  const click = async (text) => { assert.equal(await evaluate(`(() => {const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)});if(!e)return false;e.click();return true;})()`), true, text); await settle(); };
+  const click = async (text) => { assert.equal(await evaluate(`(() => {const e=[...document.querySelectorAll('button')].find(b=>b.checkVisibility()&&b.textContent.trim()===${JSON.stringify(text)});if(!e)return false;e.click();return true;})()`), true, text); await settle(); };
   const browserPost = async (route, body) => evaluate(`fetch(${JSON.stringify(route)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(body)})}).then(async r=>({status:r.status,data:await r.json()}))`);
   const screenshot = async (name) => { await evaluate('document.fonts.ready'); const result = await call('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('.qa', { recursive: true }); await fs.writeFile('.qa/' + name + '.png', Buffer.from(result.data, 'base64')); };
   const selectService = async (quantity = 1000) => {
@@ -45,6 +45,21 @@ async function main() {
     await settle();
     await go('/', "location.pathname === '/account' && document.body.textContent.includes('Welcome, Browser.')");
     assert.equal(await evaluate("[...document.querySelectorAll('main button')].some(button=>button.textContent.trim()==='Sign out')"), false, 'Sign out lives only in the profile menu');
+    await evaluate("document.querySelector('button[data-notification-trigger]').click()");
+    await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open')");
+    assert.equal(await evaluate("location.pathname"), '/account', 'Bell opens in place');
+    await waitFor("document.querySelector('[data-notification-popover]').textContent.includes('No updates yet')");
+    await screenshot('notification-popup-empty');
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await waitFor("!document.querySelector('[data-notification-popover]').matches(':popover-open')");
+    assert.equal(await evaluate("document.activeElement === document.querySelector('button[data-notification-trigger]')"), true, 'Escape restores bell focus');
+    await evaluate("document.querySelector('button[data-notification-trigger]').click()");
+    await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open')");
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: 80, y: 200, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 80, y: 200, button: 'left', clickCount: 1 });
+    await waitFor("!document.querySelector('[data-notification-popover]').matches(':popover-open')");
+
     await evaluate("document.querySelector('button[aria-haspopup=menu]').click()");
     await waitFor("!!document.querySelector('[role=menu]')");
     assert.match(await evaluate("document.querySelector('[role=menu]').textContent"), /My orders.*Add funds.*Payment history.*Notifications.*Profile settings/);
@@ -65,13 +80,21 @@ async function main() {
     await waitFor("document.body.textContent.includes('Deposit submitted for review')");
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 0);
     assert.equal(await evaluate("fetch('/api/admin').then(r=>r.status)"), 403);
-    await go('/account/notifications', "document.body.textContent.includes('Wallet deposit under review')");
-    await waitFor("document.body.textContent.includes('1 unread')");
-    await screenshot('notifications-unread');
+    await evaluate("document.querySelector('button[data-notification-trigger]').click()");
+    await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open') && document.querySelector('[data-notification-popover]').textContent.includes('Wallet deposit under review')");
+    assert.equal(await evaluate("location.pathname"), '/account');
+    assert.equal(await evaluate("document.querySelector('button[data-notification-trigger]').getAttribute('aria-label')"), 'Notifications, 1 unread', 'Opening does not automatically mark updates as read');
+    await screenshot('notification-popup-unread');
     await click('Mark all as read');
-    await waitFor("!document.body.textContent.includes('1 unread')");
+    await waitFor("document.querySelector('button[data-notification-trigger]').getAttribute('aria-label')==='Notifications'");
+    await click('Unread');
+    await waitFor("document.querySelector('[data-notification-popover]').textContent.includes('all caught up')");
+    await evaluate("document.querySelector('[data-notification-popover] a[href=\"/account/notifications\"]').click()");
+    await waitFor("location.pathname === '/account/notifications'");
+    await waitFor("document.querySelector('main').textContent.includes('Wallet deposit under review')");
+    await screenshot('notifications-unread');
     await go('/account/notifications', "document.body.textContent.includes('Wallet deposit under review')");
-    assert.equal(await evaluate("document.querySelector('a[aria-label^=Notifications]').getAttribute('aria-label')"), 'Notifications', 'Read badge remains cleared after navigation');
+    assert.equal(await evaluate("document.querySelector('button[data-notification-trigger]').getAttribute('aria-label')"), 'Notifications', 'Read badge remains cleared after navigation');
     await click('Unread'); await waitFor("document.body.textContent.includes('all caught up')");
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
 
@@ -164,6 +187,12 @@ async function main() {
       assert.ok(await evaluate("(()=>{const rect=document.querySelector('[role=menu]').getBoundingClientRect();return rect.left>=0&&rect.right<=innerWidth})()"), 'Profile menu fits at ' + width);
       if (width === 390) await screenshot('profile-menu-mobile');
       await evaluate("document.querySelector('button[aria-haspopup=menu]').click()");
+      await evaluate("document.querySelector('button[data-notification-trigger]').click()");
+      await waitFor("document.querySelector('[data-notification-popover]').matches(':popover-open')");
+      assert.ok(await evaluate("(()=>{const rect=document.querySelector('[data-notification-popover]').getBoundingClientRect();return rect.left>=0&&rect.right<=innerWidth&&rect.bottom<=innerHeight})()"), 'Notification popup fits at ' + width);
+      assert.equal(await evaluate("!!document.querySelector('[role=menu]')"), false, 'Only one account popup remains open');
+      if (width === 390) await screenshot('notification-popup-mobile');
+      await evaluate("document.querySelector('button[aria-label=\"Close notifications\"]').click()");
       if (width === 390) await screenshot('account-mobile');
     }
     const adminAgain = await browserPost('/api/auth/sign-in/email', { email: ownerEmail, password: ownerPassword });

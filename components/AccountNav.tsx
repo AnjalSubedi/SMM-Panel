@@ -4,6 +4,7 @@ import { Bell, ChevronDown, CircleHelp, CreditCard, LayoutDashboard, LogIn, LogO
 import { authClient } from "../lib/auth-client";
 import { useAccount } from "./AccountProvider";
 import UserAvatar from "./UserAvatar";
+import NotificationBell from "./NotificationBell";
 import { site } from "../config/site";
 
 export default function AccountNav() {
@@ -53,7 +54,7 @@ export default function AccountNav() {
   ];
   const unread = notifications?.unreadCount || 0;
   return <div ref={wrapper} className="relative flex shrink-0 items-center gap-2">
-    <a href="/account/notifications" aria-label={"Notifications" + (unread ? ", " + unread + " unread" : "")} className="relative flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-600"><Bell size={18} aria-hidden="true" />{unread > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-md bg-blue-600 px-1 py-0.5 text-center font-mono text-[9px] font-bold leading-3 text-white">{unread > 99 ? "99+" : unread}</span>}</a>
+    <NotificationBell onOpen={() => setOpen(false)} />
     <button ref={trigger} type="button" aria-label={"Open profile menu for " + session.user.name} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen(!open)} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); } }} className="flex items-center gap-1.5 rounded-lg border border-transparent p-0.5 hover:border-slate-200 hover:bg-slate-50"><UserAvatar id={session.user.id} name={session.user.name} /><ChevronDown size={13} className={"hidden text-slate-500 transition-transform sm:block " + (open ? "rotate-180" : "")} aria-hidden="true" /></button>
     {open && <div ref={menu} id={menuId} role="menu" aria-label="Profile menu" onKeyDown={keyboard} className="absolute right-0 top-[calc(100%+0.75rem)] z-60 max-h-[calc(100dvh-7rem)] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
       <div role="presentation" className="mb-1 border-b border-slate-100 px-3 py-3"><p className="truncate text-sm font-bold text-slate-900">{session.user.name}</p><p className="mt-1 break-all text-xs leading-5 text-slate-500">{session.user.email}</p></div>
