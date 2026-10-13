@@ -106,11 +106,15 @@ async function main() {
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('You need')");
     await set('#public-url-0', 'https://facebook.com/dashboard-saved-draft');
+    await evaluate("window.__checkoutNavigationSentinel='preserved'");
     await evaluate("document.querySelector('dialog a[href*=\"resume=1\"]').click()");
     await waitFor("location.pathname === '/account' && !!document.querySelector('a[href=\"/account?resumeOrder=1#new-order\"]')");
+    assert.equal(await evaluate("document.querySelector('dialog')?.open || false"), false, 'Add funds closes checkout so the deposit form remains usable');
+    assert.equal(await evaluate("window.__checkoutNavigationSentinel"), 'preserved', 'Add funds preserves the document and account provider');
     await evaluate("document.querySelector('a[href=\"/account?resumeOrder=1#new-order\"]').click()");
     await waitFor("location.pathname === '/account' && document.querySelector('dialog')?.open");
     assert.equal(await evaluate("document.querySelector('#public-url-0').value"), 'https://facebook.com/dashboard-saved-draft', 'Dashboard checkout restores the public link after visiting add funds');
+    assert.equal(await evaluate("window.__checkoutNavigationSentinel"), 'preserved', 'Saved checkout resumes through client navigation');
     assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');
     assert.match(await evaluate("document.querySelector('dialog').textContent"), /186.25/);
 

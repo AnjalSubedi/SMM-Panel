@@ -19,7 +19,7 @@ export function getDb(): Pool {
   if (!state.dmnpPgPool || state.dmnpPgPoolKey !== key) {
     // Verify TLS for remote providers. Connection strings cannot turn it off.
     if (!local) for (const option of ["sslmode", "ssl", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"]) url.searchParams.delete(option);
-    const pool = new Pool({ connectionString: url.toString(), max: 5, connectionTimeoutMillis: 10000, idleTimeoutMillis: 10000, allowExitOnIdle: true, ...(local ? {} : { ssl: { rejectUnauthorized: true } }) });
+    const pool = new Pool({ connectionString: url.toString(), max: 5, connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000, keepAlive: true, allowExitOnIdle: true, ...(local ? {} : { ssl: { rejectUnauthorized: true } }) });
     pool.on("error", () => console.error("PostgreSQL idle connection failed."));
     const previous = state.dmnpPgPool;
     state.dmnpPgPool = pool; state.dmnpPgPoolKey = key;

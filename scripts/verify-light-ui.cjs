@@ -41,6 +41,7 @@ async function main() {
     await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await settle();
   };
+  const waitFor = async expression => { for(let attempt=0;attempt<100;attempt++){if(await evaluate('Boolean('+expression+')'))return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Not ready: '+expression); };
   const result = [];
   async function screenshot(name, fullPage = false) {
     const metrics = await call('Page.getLayoutMetrics');
@@ -115,6 +116,7 @@ async function main() {
     await setInput('#quantity', '1250');
     const focusSelector = 'aside button[aria-haspopup]';
     await evaluate(`document.querySelector('${focusSelector}').focus(); document.querySelector('${focusSelector}').click()`); await settle();
+    await waitFor("document.querySelector('dialog')?.open");
     assert.equal(await evaluate(`document.querySelector('dialog').open`), true);
     assert.match(await evaluate(`document.querySelector('dialog').textContent`), /186.25/);
     await evaluate(`new Promise(resolve => { const img=document.querySelector('dialog img'); if(img.complete) resolve(); else img.addEventListener('load', resolve, {once:true}); })`);
@@ -143,7 +145,7 @@ async function main() {
     await setInput('#quantity', '9');
     assert.equal(await evaluate(`document.querySelector('aside button[aria-haspopup]').disabled`), true);
     await setInput('#quantity', '10');
-    await evaluate(`document.querySelector('aside button[aria-haspopup]').click()`); await settle();
+    await evaluate(`document.querySelector('aside button[aria-haspopup]').click()`); await waitFor("document.querySelector('dialog')?.open"); await settle();
     assert.match(await evaluate(`document.querySelector('dialog').textContent`), /0.89/);
     await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await settle();

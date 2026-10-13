@@ -1,11 +1,7 @@
 import type { CatalogItem } from "./catalog";
 import { MASTER_SERVICE_CATALOG } from "../config/catalogData";
 
-export const checkoutPaths = { services: "/services?resumeOrder=1#calculator", account: "/account?resumeOrder=1#new-order" } as const;
-
-export function checkoutReturnPath(value: unknown): string {
-  return value === checkoutPaths.account ? checkoutPaths.account : checkoutPaths.services;
-}
+export { checkoutPaths, checkoutReturnPath } from "./checkoutNavigation";
 
 export function requiredPlatforms(item: CatalogItem): string[] {
   if (item.kind === "service") return [item.platform || "Web & Discord"];

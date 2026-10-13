@@ -1,7 +1,11 @@
+"use client";
+import Link from "next/link";
+import { useAccount } from "./AccountProvider";
 export default function Brand() {
+  const { session } = useAccount();
   return (
-    <a
-      href="/"
+    <Link
+      href={session ? "/account" : "/"}
       aria-label="Digital Marketing NP home"
       className="brand-identity group inline-flex shrink-0 items-center gap-2.5 sm:gap-3"
     >
@@ -30,6 +34,6 @@ export default function Brand() {
           Social media services in Nepal
         </span>
       </span>
-    </a>
+    </Link>
   );
 }

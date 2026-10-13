@@ -1,9 +1,11 @@
 "use client";
+import Link from "next/link";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus, RefreshCw, Wallet } from "lucide-react";
-import { formatPrice, type CatalogItem } from "../lib/catalog";
-import { checkoutPaths, checkoutReturnPath } from "../lib/checkout";
+import { formatPrice } from "../lib/catalogFormat";
+import type { CatalogItem } from "../lib/catalog";
+import { checkoutPaths, checkoutReturnPath } from "../lib/checkoutNavigation";
 import GrowthCatalog from "./GrowthCatalog";
 import { customerItemName } from "../lib/customerCopy";
 import type { AccountData } from "../lib/account-types";
@@ -24,6 +26,10 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
     try { const draft = JSON.parse(sessionStorage.getItem("dmnp-checkout-draft") || "null"); setSavedCheckoutPath(checkoutReturnPath(draft?.returnTo)); } catch { /* Invalid drafts keep the services-page fallback. */ }
   }, [resumeCheckout]);
   const [data, setData] = useState(initial);
+  useEffect(() => { setData(initial); }, [initial]);
+  const accountRequest = useRef<Promise<void> | null>(null);
+  const accountController = useRef<AbortController | null>(null);
+  useEffect(() => () => { accountController.current?.abort(); }, []);
   const { refreshNotifications } = useAccount();
   const [amount, setAmount] = useState("500");
   const [reference, setReference] = useState("");
@@ -33,22 +39,30 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  async function refresh() {
+  function refresh(force = true): Promise<void> {
+    if (accountRequest.current && !force) return accountRequest.current;
+    if (force) accountController.current?.abort();
+    const controller = new AbortController(); accountController.current = controller;
     setRefreshing(true);
-    try {
-      const response = await fetch("/api/account", { cache: "no-store" });
-      if (response.status === 401) { window.location.assign("/login?next=/account"); return; }
-      if (!response.ok) throw new Error();
-      setData(await response.json());
-      void refreshNotifications();
-    } catch { setError("Unable to refresh your account. Please try again."); }
-    finally { setRefreshing(false); }
+    const request = (async () => {
+      try {
+        const response = await fetch("/api/account", { cache: "no-store", signal: controller.signal });
+        if (response.status === 401) { window.location.assign("/login?next=/account"); return; }
+        if (!response.ok) throw new Error();
+        const result: AccountData = await response.json();
+        if (!controller.signal.aborted) { setData(result); void refreshNotifications(); }
+      } catch { if (!controller.signal.aborted) setError("Unable to refresh your account. Please try again."); }
+      finally { if (!controller.signal.aborted) setRefreshing(false); }
+    })();
+    accountRequest.current = request;
+    void request.finally(() => { if (accountRequest.current === request) accountRequest.current = null; });
+    return request;
   }
 
   const awaitingPayment = data.orders.some((order) => order.status === "awaiting_payment") || data.payments.some((payment) => payment.status === "pending");
   useEffect(() => {
     if (!awaitingPayment) return;
-    const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
+    const timer = setInterval(() => { if (!document.hidden) void refresh(false); }, 15000);
     return () => clearInterval(timer);
     // Only poll while a payment is pending; choices remain local until confirmed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,9 +83,9 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
   }
 
   return <section className="page-container py-10 sm:py-14">
-    <div className="flex flex-wrap items-start justify-between gap-5"><div className="flex min-w-0 items-center gap-4"><span className="hidden sm:inline-flex"><UserAvatar id={data.user.id} name={data.user.name} className="size-14 text-lg" /></span><div className="min-w-0"><p className="eyebrow">Your account</p><h1 className="mt-2 break-words text-2xl font-bold tracking-tight sm:text-3xl">Welcome, {data.user.name.trim().split(/\s+/)[0]}.</h1><p className="mt-2 break-all text-sm text-slate-500">{data.user.email}</p></div></div><div className="flex flex-wrap gap-2"><a href="#new-order" className="button-primary min-h-11 px-4 text-xs">Create a new order<ArrowRight size={14} aria-hidden="true" /></a><button type="button" disabled={refreshing} onClick={refresh} className="button-secondary min-h-11 px-3 text-xs disabled:opacity-50"><RefreshCw size={14} className={refreshing ? "animate-spin" : ""} aria-hidden="true" />{refreshing ? "Refreshing..." : "Refresh account"}</button></div></div>
-    <nav aria-label="Account sections" className="mt-7 flex flex-wrap gap-2 border-b border-slate-200 pb-4">{[{ label: "Place an order", href: "#new-order" }, { label: "My orders", href: "#orders" }, { label: "Add funds", href: "#add-funds" }, { label: "Payment history", href: "#payments" }, { label: "Transactions", href: "#transactions" }, { label: "Profile settings", href: "/account/settings" }].map(link => <a key={link.label} href={link.href} className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-600">{link.label}</a>)}</nav>
-    {resumeCheckout && <a href={savedCheckoutPath} className="button-secondary mt-5 min-h-11 px-4 text-sm">Return to your saved checkout<ArrowRight size={15} /></a>}
+    <div className="flex flex-wrap items-start justify-between gap-5"><div className="flex min-w-0 items-center gap-4"><span className="hidden sm:inline-flex"><UserAvatar id={data.user.id} name={data.user.name} className="size-14 text-lg" /></span><div className="min-w-0"><p className="eyebrow">Your account</p><h1 className="mt-2 break-words text-2xl font-bold tracking-tight sm:text-3xl">Welcome, {data.user.name.trim().split(/\s+/)[0]}.</h1><p className="mt-2 break-all text-sm text-slate-500">{data.user.email}</p></div></div><div className="flex flex-wrap gap-2"><a href="#new-order" className="button-primary min-h-11 px-4 text-xs">Create a new order<ArrowRight size={14} aria-hidden="true" /></a><button type="button" disabled={refreshing} onClick={() => void refresh()} className="button-secondary min-h-11 px-3 text-xs disabled:opacity-50"><RefreshCw size={14} className={refreshing ? "animate-spin" : ""} aria-hidden="true" />{refreshing ? "Refreshing..." : "Refresh account"}</button></div></div>
+    <nav aria-label="Account sections" className="mt-7 flex flex-wrap gap-2 border-b border-slate-200 pb-4">{[{ label: "Place an order", href: "#new-order" }, { label: "My orders", href: "#orders" }, { label: "Add funds", href: "#add-funds" }, { label: "Payment history", href: "#payments" }, { label: "Transactions", href: "#transactions" }, { label: "Profile settings", href: "/account/settings" }].map(link => <Link key={link.label} href={link.href} className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-600">{link.label}</Link>)}</nav>
+    {resumeCheckout && <Link href={savedCheckoutPath} className="button-secondary mt-5 min-h-11 px-4 text-sm">Return to your saved checkout<ArrowRight size={15} /></Link>}
     <div className="mt-8 grid gap-5 md:grid-cols-3">
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-6"><div className="flex items-center justify-between text-sm font-semibold text-slate-700"><span>Available wallet balance</span><Wallet size={20} className="text-blue-600" /></div><p className="mt-5 font-mono text-3xl font-bold text-blue-600">{formatPrice(data.balancePaisa / 100)}</p><a href="#add-funds" className="button-primary mt-5 min-h-10 px-4 text-xs"><Plus size={14} />Add funds</a></div>
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"><p className="text-sm font-semibold text-slate-700">Recent orders</p><p className="mt-5 font-mono text-3xl font-bold">{data.orders.length}</p><a href="#new-order" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-blue-600">Create a new order<ArrowRight size={14} /></a></div>

@@ -181,26 +181,30 @@ export async function updateOrderStatus(raw: unknown, actorId: string) {
 
 export async function accountData(user: AccountUser): Promise<AccountData> {
   const db = getDb();
-  return {
-    user, balancePaisa: await wallet(user.id),
-    deliveryServices: services.filter(supportsGradualDelivery),
-    orders: (await many(db, "SELECT * FROM \"appOrder\" WHERE \"userId\" = $1 ORDER BY \"createdAt\" DESC LIMIT 100", [user.id])).map((row) => ({ ...row })) as OrderRecord[],
-    payments: (await many(db, "SELECT id,\"userId\",\"orderId\",kind,\"amountPaisa\",reference,status,note,\"createdAt\",\"reviewedAt\" FROM \"appPayment\" WHERE \"userId\" = $1 ORDER BY \"createdAt\" DESC LIMIT 100", [user.id])).map((row) => ({ ...row })) as PaymentRecord[],
-    ledger: (await many(db, "SELECT id,\"amountPaisa\",kind,\"sourceId\",\"createdAt\" FROM \"appLedger\" WHERE \"userId\" = $1 ORDER BY \"createdAt\" DESC LIMIT 100", [user.id])).map((row) => ({ ...row })) as LedgerRecord[],
-  };
+  // Account reads do not create a wallet; payment transactions create it when needed.
+  const [balance, orders, payments, ledger] = await Promise.all([
+    one<{ balancePaisa: number }>(db, 'SELECT "balancePaisa" FROM "appWallet" WHERE "userId" = $1', [user.id]),
+    many<OrderRecord>(db, 'SELECT * FROM "appOrder" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 100', [user.id]),
+    many<PaymentRecord>(db, 'SELECT id,"userId","orderId",kind,"amountPaisa",reference,status,note,"createdAt","reviewedAt" FROM "appPayment" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 100', [user.id]),
+    many<LedgerRecord>(db, 'SELECT id,"amountPaisa",kind,"sourceId","createdAt" FROM "appLedger" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 100', [user.id]),
+  ]);
+  return { user, balancePaisa: balance?.balancePaisa ?? 0, deliveryServices: services.filter(supportsGradualDelivery), orders, payments, ledger };
 }
 
 export async function adminData(actorId: string): Promise<AdminData> {
   await adminOnly(actorId);
   const db = getDb();
-  const count = async (sql: string) => ((await one(db, sql)) as { value: number }).value;
-  return {
-    users: (await many(db, "SELECT u.id,u.name,u.email,u.\"emailVerified\",u.\"createdAt\",COALESCE(w.\"balancePaisa\",0) AS \"balancePaisa\" FROM \"user\" u LEFT JOIN \"appWallet\" w ON u.id=w.\"userId\" ORDER BY u.\"createdAt\" DESC LIMIT 100", [])).map((row) => ({ ...row })) as AdminData["users"],
-    payments: (await many(db, "SELECT p.id,p.\"userId\",p.\"orderId\",p.kind,p.\"amountPaisa\",p.reference,p.status,p.note,p.\"createdAt\",p.\"reviewedAt\",COALESCE(u.email,o.email) AS email,o.\"itemName\" FROM \"appPayment\" p LEFT JOIN \"user\" u ON p.\"userId\"=u.id LEFT JOIN \"appOrder\" o ON p.\"orderId\"=o.id ORDER BY (p.status='pending') DESC,p.\"createdAt\" DESC LIMIT 100", [])).map((row) => ({ ...row })) as AdminData["payments"],
-    orders: (await many(db, "SELECT * FROM \"appOrder\" ORDER BY \"createdAt\" DESC LIMIT 100", [])).map((row) => ({ ...row })) as OrderRecord[],
-    audit: (await many(db, "SELECT a.id,a.action,a.\"targetId\",a.note,a.\"createdAt\",u.email AS \"actorEmail\" FROM \"appAudit\" a JOIN \"user\" u ON a.\"actorId\"=u.id ORDER BY a.\"createdAt\" DESC LIMIT 100", [])).map((row) => ({ ...row })) as AdminData["audit"],
-    totals: { users: await count("SELECT COUNT(*) AS value FROM \"user\""), pendingPayments: await count("SELECT COUNT(*) AS value FROM \"appPayment\" WHERE status='pending'"), queuedOrders: await count("SELECT COUNT(*) AS value FROM \"appOrder\" WHERE status IN ('awaiting_delivery','queued','processing')"), walletLiabilityPaisa: await count("SELECT COALESCE(SUM(\"balancePaisa\"),0)::bigint AS value FROM \"appWallet\"") },
-  };
+  const [users, payments, orders, audit, totals] = await Promise.all([
+    many<AdminData["users"][number]>(db, 'SELECT u.id,u.name,u.email,u."emailVerified",u."createdAt",COALESCE(w."balancePaisa",0) AS "balancePaisa" FROM "user" u LEFT JOIN "appWallet" w ON u.id=w."userId" ORDER BY u."createdAt" DESC LIMIT 100'),
+    many<AdminData["payments"][number]>(db, 'SELECT p.id,p."userId",p."orderId",p.kind,p."amountPaisa",p.reference,p.status,p.note,p."createdAt",p."reviewedAt",COALESCE(u.email,o.email) AS email,o."itemName" FROM "appPayment" p LEFT JOIN "user" u ON p."userId"=u.id LEFT JOIN "appOrder" o ON p."orderId"=o.id ORDER BY (p.status=\'pending\') DESC,p."createdAt" DESC LIMIT 100'),
+    many<OrderRecord>(db, 'SELECT * FROM "appOrder" ORDER BY "createdAt" DESC LIMIT 100'),
+    many<AdminData["audit"][number]>(db, 'SELECT a.id,a.action,a."targetId",a.note,a."createdAt",u.email AS "actorEmail" FROM "appAudit" a JOIN "user" u ON a."actorId"=u.id ORDER BY a."createdAt" DESC LIMIT 100'),
+    one<AdminData["totals"]>(db, `SELECT (SELECT COUNT(*)::int FROM "user") AS users,
+      (SELECT COUNT(*)::int FROM "appPayment" WHERE status='pending') AS "pendingPayments",
+      (SELECT COUNT(*)::int FROM "appOrder" WHERE status IN ('awaiting_delivery','queued','processing')) AS "queuedOrders",
+      (SELECT COALESCE(SUM("balancePaisa"),0)::bigint FROM "appWallet") AS "walletLiabilityPaisa"`),
+  ]);
+  return { users, payments, orders, audit, totals: totals! };
 }
 
 export async function chooseDelivery(raw: unknown, user: AccountUser) {

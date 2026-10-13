@@ -1,3 +1,4 @@
+import { packages } from "../lib/catalog";
 import { redirect } from "next/navigation";
 import HeroSection from "../components/HeroSection";
 import GrowthCatalog from "../components/GrowthCatalog";
@@ -10,5 +11,5 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const query = await searchParams;
   if (query.resumeOrder === "1") redirect("/services?resumeOrder=1#calculator");
   if (await currentUser()) redirect("/account");
-  return <><HeroSection preview={services[0]} /><GrowthCatalog services={services} /><WebDevUpsellBanner /></>;
+  return <><HeroSection preview={services[0]} /><GrowthCatalog services={services} bundles={packages} /><WebDevUpsellBanner /></>;
 }

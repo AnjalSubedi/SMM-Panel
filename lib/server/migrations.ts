@@ -13,8 +13,10 @@ export async function migrateDatabase() {
     await migrations.runMigrations();
     await db.query(await readFile(resolve("migrations/001-commerce.sql"), "utf8"));
     await db.query(await readFile(resolve("migrations/002-notifications.sql"), "utf8"));
+    await db.query(await readFile(resolve("migrations/003-performance.sql"), "utf8"));
     await db.query('CREATE TABLE IF NOT EXISTS "appMigration" ("id" TEXT PRIMARY KEY, "appliedAt" TEXT NOT NULL)');
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["001-commerce", new Date().toISOString()]);
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["002-notifications", new Date().toISOString()]);
+    await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["003-performance", new Date().toISOString()]);
   });
 }

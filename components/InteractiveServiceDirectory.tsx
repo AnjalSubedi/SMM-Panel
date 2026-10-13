@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { ArrowRight, ChevronDown, LockKeyhole, Minus, Plus, SlidersHorizontal } from "lucide-react";
-import { formatPrice, formatQuantity, platformOrder, type CatalogItem } from "../lib/catalog";
+import { formatPrice, formatQuantity, platformOrder } from "../lib/catalogFormat";
+import type { CatalogItem } from "../lib/catalog";
 import { calculateTotal, normalizeQuantity, prepareServiceOrder } from "../lib/order";
 import { getServiceCategory } from "../lib/serviceCategories";
 import PlatformIcon from "./PlatformIcon";
@@ -65,7 +66,7 @@ function QuantityConfigurator({ service, onOrder, compact = false }: { service: 
   );
 }
 
-export default function InteractiveServiceDirectory({ services, onOrder, compact = false }: { services: CatalogItem[]; onOrder: (item: CatalogItem) => void; compact?: boolean }) {
+export default function InteractiveServiceDirectory({ services, onOrder, compact = false, onPrepareCheckout }: { services: CatalogItem[]; onOrder: (item: CatalogItem) => void; compact?: boolean; onPrepareCheckout?: () => void }) {
   const headingId = compact ? "dashboard-catalog-heading" : "catalog-heading";
   const configuratorId = compact ? "dashboard-configurator-heading" : "configurator-heading";
   const [platform, setPlatform] = useState("");
@@ -95,7 +96,7 @@ export default function InteractiveServiceDirectory({ services, onOrder, compact
             <div className={compact ? "grid items-start gap-4 md:grid-cols-3" : "mt-6 space-y-6"}>
               <div>
                 <label htmlFor="service-platform" className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800"><span className="flex size-6 items-center justify-center rounded-md bg-blue-50 font-mono text-[10px] text-blue-600">01</span>Choose platform</label>
-                <div className="relative"><select id="service-platform" value={platform} onChange={(event) => { setPlatform(event.target.value); setCategory(""); setServiceId(""); }} className={selectClass}>
+                <div className="relative"><select id="service-platform" value={platform} onChange={(event) => { setPlatform(event.target.value); setCategory(""); setServiceId(""); if (event.target.value) onPrepareCheckout?.(); }} className={selectClass}>
                   <option value="">Select a platform</option>
                   {platforms.map((name) => <option key={name} value={name}>{name === "X (Twitter)" ? "X / Twitter" : name}</option>)}
                 </select><ChevronDown size={16} aria-hidden="true" className="pointer-events-none absolute right-3 top-4 text-slate-400" /></div>

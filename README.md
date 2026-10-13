@@ -39,7 +39,7 @@ Quantity mappings use `data/suvakrio-services.json`, verified against all nine p
 - `components/InteractiveServiceDirectory.tsx`: platform -> category -> service dropdowns and quantity calculator.
 - `components/CheckoutModal.tsx`: direct eSewa and wallet checkout, with saved selections across sign-in.
 - `components/AuthForm.tsx`, `AccountDashboard.tsx`, `AdminDashboard.tsx`: account and operations UI.
-- `lib/server/`: authentication, authorization, SQLite storage, money transactions and API guards.
+- `lib/server/`: authentication, authorization, PostgreSQL storage, money transactions and API guards.
 - `lib/order.ts`: frontend quantity calculations; checkout revalidates prices on the server.
 - `lib/providerCatalog.ts`, `config/serviceQuantityMappings.json`: equivalent-service quantity limits shared by the UI, catalog endpoint and server checkout.
 - `config/site.ts`: public contacts and the supplied eSewa QR at `public/esewa-qr.jpg`.
@@ -53,6 +53,12 @@ npm.cmd run build
 ```
 
 Browser and HTTP QA instructions are in [the setup guide](docs/ACCOUNTS_SETUP.md#verification). Private configuration and legacy database files are ignored. PostgreSQL stores accounts, orders and balances outside Vercel Functions. See [Vercel hosting](docs/VERCEL_HOSTING.md) and [PostgreSQL migration](docs/POSTGRESQL_MIGRATION.md).
+
+## Navigation and performance
+
+Internal routes use Next.js client navigation so the header, profile menu and notification state stay mounted. Account and auth routes stream loading placeholders; checkout code loads on demand and is warmed when a customer starts selecting a service. Wallet and account responses remain private and uncached. Forced refreshes after payments bypass in-flight background reads.
+
+The committed Vercel function region is Singapore (sin1), matching the current Neon database region. Revisit regions in vercel.json if the database moves. The additive 003-performance migration indexes account notifications and admin history; the existing deployment build runs it automatically. Run timing measurements against a production build rather than next dev, which compiles routes on demand.
 
 ## PostgreSQL and existing data
 

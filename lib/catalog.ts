@@ -1,3 +1,4 @@
+import { formatPrice, formatQuantity } from "./catalogFormat";
 import { COMBO_PACKAGES } from "../config/catalogData";
 import { bundleCopy } from "./customerCopy";
 
@@ -33,17 +34,7 @@ export type ServiceCatalogResponse = {
   updatedAt: string;
 };
 
-export const platformOrder = [
-  "Facebook",
-  "Instagram",
-  "TikTok",
-  "YouTube",
-  "Telegram",
-  "X (Twitter)",
-  "LinkedIn",
-  "Spotify",
-  "Web & Discord",
-] as const;
+export { platformOrder } from "./catalogFormat";
 
 export const packages: readonly CatalogItem[] = COMBO_PACKAGES.map((bundle, index) => ({
   id: bundle.id,
@@ -78,13 +69,7 @@ export function applyMarkup(rate: number, markupPercent: number): number {
   return Number((rate * (1 + markupPercent / 100)).toFixed(2));
 }
 
-export function formatPrice(price: number): string {
-  return `NPR ${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-}
-
-export function formatQuantity(quantity: number): string {
-  return quantity.toLocaleString("en-US");
-}
+export { formatPrice, formatQuantity } from "./catalogFormat";
 
 export function buildOrderSummary(item: CatalogItem, settlement = "Direct eSewa"): string {
   const serviceDetails = item.kind === "service"

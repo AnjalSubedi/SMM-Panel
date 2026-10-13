@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Bell, ChevronDown, CircleHelp, CreditCard, LayoutDashboard, LogIn, LogOut, Settings, ShieldCheck, ShoppingBag, Wallet } from "lucide-react";
 import { authClient } from "../lib/auth-client";
@@ -40,7 +41,7 @@ export default function AccountNav() {
     catch { setError("Unable to sign out. Please try again."); setBusy(false); }
   }
   if (sessionPending) return <span className="h-10 w-20 animate-pulse rounded-lg bg-slate-100" aria-label="Loading account" />;
-  if (!session) return <a href="/login" className="button-secondary min-h-10 shrink-0 px-3 text-xs sm:text-[13px]"><LogIn size={15} aria-hidden="true" />Sign in</a>;
+  if (!session) return <Link href="/login" className="button-secondary min-h-10 shrink-0 px-3 text-xs sm:text-[13px]"><LogIn size={15} aria-hidden="true" />Sign in</Link>;
   const links = [
     { label: "Dashboard", href: "/account", icon: LayoutDashboard },
     { label: "Place an order", href: "/account#new-order", icon: ShoppingBag },
@@ -59,7 +60,7 @@ export default function AccountNav() {
     <button ref={trigger} type="button" aria-label={"Open profile menu for " + session.user.name} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen(!open)} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); } }} className="flex items-center gap-1.5 rounded-lg border border-transparent p-0.5 hover:border-slate-200 hover:bg-slate-50"><UserAvatar id={session.user.id} name={session.user.name} /><ChevronDown size={13} className={"hidden text-slate-500 transition-transform sm:block " + (open ? "rotate-180" : "")} aria-hidden="true" /></button>
     {open && <div ref={menu} id={menuId} role="menu" aria-label="Profile menu" onKeyDown={keyboard} className="absolute right-0 top-[calc(100%+0.75rem)] z-60 max-h-[calc(100dvh-7rem)] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
       <div role="presentation" className="mb-1 border-b border-slate-100 px-3 py-3"><p className="truncate text-sm font-bold text-slate-900">{session.user.name}</p><p className="mt-1 break-all text-xs leading-5 text-slate-500">{session.user.email}</p></div>
-      {links.map(({ label, href, icon: Icon }) => <a role="menuitem" tabIndex={-1} key={label} href={href} target={href.startsWith("https:") ? "_blank" : undefined} rel={href.startsWith("https:") ? "noopener noreferrer" : undefined} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:bg-blue-50 focus:text-blue-700"><Icon size={17} className="shrink-0 text-slate-400" aria-hidden="true" /><span>{label}</span>{label === "Notifications" && unread > 0 && <span className="ml-auto rounded-md bg-blue-50 px-2 py-0.5 font-mono text-xs text-blue-700">{unread}</span>}</a>)}
+      {links.map(({ label, href, icon: Icon }) => <Link role="menuitem" tabIndex={-1} key={label} href={href} target={href.startsWith("https:") ? "_blank" : undefined} rel={href.startsWith("https:") ? "noopener noreferrer" : undefined} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:bg-blue-50 focus:text-blue-700"><Icon size={17} className="shrink-0 text-slate-400" aria-hidden="true" /><span>{label}</span>{label === "Notifications" && unread > 0 && <span className="ml-auto rounded-md bg-blue-50 px-2 py-0.5 font-mono text-xs text-blue-700">{unread}</span>}</Link>)}
       <div role="presentation" className="mt-1 border-t border-slate-100 pt-1"><button role="menuitem" tabIndex={-1} type="button" disabled={busy} onClick={signOut} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 focus:bg-red-50 disabled:opacity-50"><LogOut size={17} aria-hidden="true" />{busy ? "Signing out..." : "Sign out"}</button></div>
       {error && <p role="alert" className="px-3 py-2 text-xs leading-5 text-red-700">{error}</p>}
     </div>}

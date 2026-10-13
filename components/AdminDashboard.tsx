@@ -1,9 +1,11 @@
 "use client";
+import Link from "next/link";
 
 import { useState } from "react";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AdminData } from "../lib/account-types";
-import { formatPrice } from "../lib/catalog";
+import { formatPrice } from "../lib/catalogFormat";
+
 import { customerItemName } from "../lib/customerCopy";
 import OrderDeliveryDetails from "./OrderDeliveryDetails";
 import StatusBadge from "./StatusBadge";
@@ -56,7 +58,7 @@ export default function AdminDashboard({ initial }: { initial: AdminData }) {
   }
   const metrics = [{ label: "Registered accounts", value: String(data.totals.users) }, { label: "Payments to review", value: String(data.totals.pendingPayments) }, { label: "Active paid orders", value: String(data.totals.queuedOrders) }, { label: "Total customer wallet balances", value: formatPrice(data.totals.walletLiabilityPaisa / 100) }];
   return <section className="page-container py-10 sm:py-14">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow flex items-center gap-2"><ShieldCheck size={14} />Administrator</p><h1 className="mt-3 text-3xl font-bold tracking-tight">Operations dashboard</h1><p className="mt-2 text-sm text-slate-500">Verify payments, manage delivery, and review account activity.</p></div><div className="flex gap-2"><a href="/account" className="button-secondary min-h-10 px-3 text-xs">My account<ArrowUpRight size={14} /></a><button disabled={busy} onClick={reload} className="button-secondary min-h-10 px-3 text-xs"><RefreshCw size={14} />Refresh</button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow flex items-center gap-2"><ShieldCheck size={14} />Administrator</p><h1 className="mt-3 text-3xl font-bold tracking-tight">Operations dashboard</h1><p className="mt-2 text-sm text-slate-500">Verify payments, manage delivery, and review account activity.</p></div><div className="flex gap-2"><Link href="/account" className="button-secondary min-h-10 px-3 text-xs">My account<ArrowUpRight size={14} /></Link><button disabled={busy} onClick={reload} className="button-secondary min-h-10 px-3 text-xs"><RefreshCw size={14} />Refresh</button></div></div>
     <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{metrics.map((metric) => <div key={metric.label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold text-slate-500">{metric.label}</p><p className="mt-4 font-mono text-2xl font-bold text-slate-900">{metric.value}</p></div>)}</div>
     <p className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-800">Check the payer, transaction code and amount in eSewa before approving a payment. Delivery is arranged manually after payment; eligible signed-in customers must also choose their delivery timing.</p>
     <div aria-label="Admin sections" className="mt-7 flex flex-wrap gap-2">{(["payments", "orders", "users", "audit"] as const).map((name) => <button type="button" key={name} aria-pressed={tab === name} onClick={() => setTab(name)} className={"rounded-lg border px-4 py-2.5 text-xs font-semibold capitalize " + (tab === name ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600")}>{name === "audit" ? "Audit log" : name}</button>)}</div>

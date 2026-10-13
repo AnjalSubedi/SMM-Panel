@@ -1,4 +1,5 @@
-import { formatPrice, formatQuantity, type CatalogItem } from "./catalog";
+import { formatPrice, formatQuantity } from "./catalogFormat";
+import type { CatalogItem } from "./catalog";
 
 export function normalizeQuantity(service: CatalogItem, value: number): number {
   const min = service.min ?? 1;

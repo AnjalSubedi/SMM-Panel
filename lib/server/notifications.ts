@@ -46,10 +46,14 @@ export async function notificationData(user: AccountUser): Promise<NotificationD
 }
 export async function markNotificationsRead(raw: unknown, user: AccountUser) {
   const input = notificationReadSchema.parse(raw);
-  const own = new Set((await notificationData(user)).items.map(item => item.id));
+  const snapshot = await notificationData(user);
+  const own = new Set(snapshot.items.map(item => item.id));
   if (input.ids.some(id => !own.has(id))) throw new AppError("Notification not found.", 404);
   await transaction(async db => {
     await db.query('INSERT INTO "appNotificationRead" ("userId", "notificationId", "readAt") SELECT $1, id, $3 FROM unnest($2::text[]) AS id ON CONFLICT DO NOTHING', [user.id, [...new Set(input.ids)], new Date().toISOString()]);
   });
-  return notificationData(user);
+  const rows = await many<{ notificationId: string }>(getDb(), 'SELECT "notificationId" FROM "appNotificationRead" WHERE "userId" = $1 AND "notificationId" = ANY($2::text[])', [user.id, snapshot.items.map(item => item.id)]);
+  const readIds = new Set(rows.map(row => row.notificationId));
+  const items = snapshot.items.map(item => readIds.has(item.id) ? { ...item, read: true } : item);
+  return { ...snapshot, items, unreadCount: items.filter(item => !item.read).length };
 }

@@ -1,6 +1,7 @@
 import { ArrowRight, Check, LockKeyhole, MessageCircle } from "lucide-react";
 import { supportUrl } from "../config/site";
-import { formatPrice, type CatalogItem } from "../lib/catalog";
+import { formatPrice } from "../lib/catalogFormat";
+import type { CatalogItem } from "../lib/catalog";
 
 export default function HeroSection({ preview }: { preview: CatalogItem }) {
   return (

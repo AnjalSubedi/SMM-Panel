@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Bell, RefreshCw, X } from "lucide-react";
@@ -41,7 +42,7 @@ export default function NotificationBell({ onOpen }: { onOpen: () => void }) {
     <div ref={panel} id={id} popover="auto" role="dialog" aria-labelledby={id + "-title"} data-notification-popover className="notification-popover m-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-lg" style={{ position: "fixed", inset: "auto", ...position, maxHeight: "calc(100dvh - " + position.top + "px - 1rem)" }} onToggle={event => {
       const visible = event.currentTarget.matches(":popover-open");
       setOpen(visible);
-      if (visible) { positionPanel(); onOpen(); void refreshNotifications(); heading.current?.focus({ preventScroll: true }); }
+      if (visible) { positionPanel(); onOpen(); void refreshNotifications(false); heading.current?.focus({ preventScroll: true }); }
       else if (panel.current?.contains(document.activeElement)) trigger.current?.focus({ preventScroll: true });
     }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }} onBlur={event => { const next = event.relatedTarget; if (next instanceof Node && !event.currentTarget.contains(next) && next !== trigger.current) close(false); }}>
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
@@ -49,7 +50,7 @@ export default function NotificationBell({ onOpen }: { onOpen: () => void }) {
         <div className="flex shrink-0 gap-1"><button type="button" aria-label="Refresh notifications" disabled={notificationsPending} onClick={() => void refreshNotifications()} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50"><RefreshCw size={16} className={notificationsPending ? "animate-spin" : ""} aria-hidden="true" /></button><button type="button" aria-label="Close notifications" onClick={() => close()} className="flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-900"><X size={18} aria-hidden="true" /></button></div>
       </div>
       <NotificationCenter popup onNavigate={() => close(false)} />
-      <a href="/account/notifications" onClick={() => close(false)} className="flex min-h-12 shrink-0 items-center justify-center gap-2 border-t border-slate-100 px-4 py-3 text-xs font-semibold text-blue-600 hover:bg-blue-50">View all notifications<ArrowRight size={14} aria-hidden="true" /></a>
+      <Link href="/account/notifications" onClick={() => close(false)} className="flex min-h-12 shrink-0 items-center justify-center gap-2 border-t border-slate-100 px-4 py-3 text-xs font-semibold text-blue-600 hover:bg-blue-50">View all notifications<ArrowRight size={14} aria-hidden="true" /></Link>
     </div>
   </>;
 }
