@@ -15,7 +15,7 @@ try {
   console.log("Running tests against isolated local PostgreSQL; hosted credentials and provider keys are not used.");
   const files = process.argv.slice(2);
   process.exitCode = await new Promise((done, reject) => {
-    const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "--test", ...(files.length ? files : ["tests/commerce.test.ts", "tests/auth.test.ts", "tests/catalog.test.ts", "tests/delivery.test.ts", "tests/migration.test.ts", "tests/notifications.test.ts"])], { stdio: "inherit", env: { ...process.env, DATABASE_URL: "", DMNP_TEST_DATABASE_URL: "postgresql://dmnp_test:" + password + "@127.0.0.1:" + port + "/postgres", RESEND_API_KEY: "", AUTH_EMAIL_FROM: "", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "", SUVAKRIO_API_KEY: "", BETTER_AUTH_SECRET: "isolated-test-secret-" + randomBytes(32).toString("hex") } });
+    const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "--test", ...(files.length ? files : ["tests/commerce.test.ts", "tests/auth.test.ts", "tests/catalog.test.ts", "tests/delivery.test.ts", "tests/migration.test.ts", "tests/notifications.test.ts", "tests/security.test.ts"])], { stdio: "inherit", env: { ...process.env, DATABASE_URL: "", DMNP_TEST_DATABASE_URL: "postgresql://dmnp_test:" + password + "@127.0.0.1:" + port + "/postgres", RESEND_API_KEY: "", AUTH_EMAIL_FROM: "", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "", SUVAKRIO_API_KEY: "", BETTER_AUTH_SECRET: "isolated-test-secret-" + randomBytes(32).toString("hex") } });
     child.on("error", reject); child.on("exit", (code) => done(code ?? 1));
   });
 } catch (error) { console.error("PostgreSQL test runner failed:", error instanceof Error ? error.message : "Unknown error"); process.exitCode = 1; }

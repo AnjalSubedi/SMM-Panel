@@ -10,6 +10,18 @@ async function request(path, body, useCookie = true, origin = base) {
   return { response, data };
 }
 async function main() {
+  const login = await request('/login', null, false);
+  assert.equal(login.response.headers.get('x-frame-options'), 'DENY');
+  assert.equal(login.response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(login.response.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(login.response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(login.response.headers.get('x-powered-by'), null);
+  for (const path of ['/api/orders', '/api/auth/sign-in/email']) {
+    const oversized = await fetch(base + path, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ padding: 'x'.repeat(20001) }) });
+    assert.equal(oversized.status, 413, path + ' rejects oversized payloads');
+  }
+  const malformed = await fetch(base + '/api/orders', { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json' }, body: new Uint8Array([255]) });
+  assert.equal(malformed.status, 400);
   assert.equal((await request('/api/account', null, false)).response.status, 401);
   assert.equal((await request('/api/admin', null, false)).response.status, 401);
   assert.equal((await request('/api/account/notifications', null, false)).response.status, 401);
@@ -22,9 +34,17 @@ async function main() {
   assert.equal(signup.data.user.emailVerified, false);
   cookie = signup.response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
   assert.ok(cookie.includes('session_token'));
+  assert.ok(signup.response.headers.getSetCookie().filter(value=>value.includes('session_token')).every(value=>/httponly/i.test(value)&&/samesite=lax/i.test(value)));
+  assert.match(signup.response.headers.get('cache-control'), /private.*no-store/);
+  const badProfile = await request('/api/auth/update-user', { name: 'x'.repeat(81) });
+  assert.equal(badProfile.response.status, 400, 'Profile length must be checked on the server');
+  assert.equal((await request('/api/auth/update-user', { image: 'javascript:alert(1)' })).response.status, 400);
+  assert.equal((await request('/api/auth/update-user', { name: 'QA Customer', emailVerified: true, role: 'admin' })).response.status, 200);
   const account = await request('/api/account');
   assert.equal(account.response.status, 200);
   assert.equal(account.data.user.isAdmin, false);
+  assert.equal(account.data.user.emailVerified, false, 'Profile updates cannot forge verification');
+  assert.match(account.response.headers.get('cache-control'), /private.*no-store/);
   assert.equal(account.data.balancePaisa, 0);
   assert.equal((await request('/api/admin')).response.status, 403);
   const home = await request('/');
@@ -40,6 +60,8 @@ async function main() {
   const key = crypto.randomUUID();
   const reference = 'QA-DIRECT-' + crypto.randomUUID();
   const input = { itemId: 'FB_01', quantity: 1000, links: [{ platform: 'Facebook', url: 'https://facebook.com/example' }], method: 'direct', reference, requestKey: key };
+  const deceptive = { ...input, reference: 'DECEPTIVE-' + crypto.randomUUID(), requestKey: crypto.randomUUID(), links: [{ platform: 'Facebook', url: 'https://facebook.com@evil.com/page' }] };
+  assert.equal((await request('/api/orders', deceptive)).response.status, 400);
   const direct = await request('/api/orders', input);
   assert.equal(direct.response.status, 201, JSON.stringify(direct.data));
   assert.equal(direct.data.amountPaisa, 14900);

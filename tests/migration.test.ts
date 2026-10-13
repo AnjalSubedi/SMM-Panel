@@ -13,21 +13,24 @@ test("PostgreSQL migration is repeatable and imports durable SQLite records with
   const source = new DatabaseSync(filename);
   const { hashPassword } = await import("better-auth/crypto");
   const password = await hashPassword("Imported-Password-Test-2026");
-  source.exec('CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT, emailVerified INTEGER, createdAt INTEGER, updatedAt INTEGER); CREATE TABLE account (id TEXT PRIMARY KEY, userId TEXT, accountId TEXT, providerId TEXT, password TEXT, createdAt INTEGER, updatedAt INTEGER); CREATE TABLE appWallet (userId TEXT PRIMARY KEY, balancePaisa INTEGER); CREATE TABLE appLedger (id TEXT PRIMARY KEY, userId TEXT, amountPaisa INTEGER, kind TEXT, sourceId TEXT, createdAt TEXT); CREATE TABLE appOrder (id TEXT PRIMARY KEY, userId TEXT, email TEXT, itemId TEXT, itemKind TEXT, itemName TEXT, quantity INTEGER, amountPaisa INTEGER, links TEXT, method TEXT, status TEXT, requestScope TEXT, requestKey TEXT, createdAt TEXT, updatedAt TEXT)');
+  source.exec('CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT, emailVerified INTEGER, createdAt INTEGER, updatedAt INTEGER); CREATE TABLE account (id TEXT PRIMARY KEY, userId TEXT, accountId TEXT, providerId TEXT, password TEXT, createdAt INTEGER, updatedAt INTEGER, accessToken TEXT, refreshToken TEXT, idToken TEXT); CREATE TABLE appWallet (userId TEXT PRIMARY KEY, balancePaisa INTEGER); CREATE TABLE appLedger (id TEXT PRIMARY KEY, userId TEXT, amountPaisa INTEGER, kind TEXT, sourceId TEXT, createdAt TEXT); CREATE TABLE appOrder (id TEXT PRIMARY KEY, userId TEXT, email TEXT, itemId TEXT, itemKind TEXT, itemName TEXT, quantity INTEGER, amountPaisa INTEGER, links TEXT, method TEXT, status TEXT, requestScope TEXT, requestKey TEXT, createdAt TEXT, updatedAt TEXT)');
   source.prepare('INSERT INTO user VALUES (?,?,?,?,?,?)').run("legacy-user", "Legacy User", "legacy@example.test", 1, 1700000000000, 1700000000000);
-  source.prepare('INSERT INTO account VALUES (?,?,?,?,?,?,?)').run("legacy-account", "legacy-user", "legacy-user", "credential", password, 1700000000000, 1700000000000);
+  source.prepare('INSERT INTO account (id,userId,accountId,providerId,password,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?)').run("legacy-account", "legacy-user", "legacy-user", "credential", password, 1700000000000, 1700000000000);
   source.exec(`INSERT INTO appWallet VALUES ('legacy-user', 50000); INSERT INTO appLedger VALUES ('legacy-ledger', 'legacy-user', 50000, 'deposit', 'legacy-payment', '2026-10-01'); INSERT INTO appOrder VALUES ('legacy-order', 'legacy-user', 'legacy@example.test', 'FB_03', 'service', 'Existing order', 100, 1390, '[]', 'wallet', 'processing', 'legacy', 'legacy', '2026-10-01', '2026-10-01');`);
+  source.exec("INSERT INTO account VALUES ('legacy-google','legacy-user','google-identity','google',NULL,1700000000000,1700000000000,'fake-access','fake-refresh','fake-id')");
   source.close();
   try {
     const { migrateDatabase } = await import("../lib/server/migrations");
     const { importSqlite } = await import("../lib/server/sqlite-import");
     const { getDb, one } = await import("../lib/server/db");
     const counts = await importSqlite(filename);
-    assert.equal(counts.user, 1); assert.equal(counts.account, 1); assert.equal(counts.appOrder, 1);
+    assert.equal(counts.user, 1); assert.equal(counts.account, 2); assert.equal(counts.appOrder, 1);
     const db = getDb();
     const user = await one(db, 'SELECT * FROM "user" WHERE id = $1', ["legacy-user"]);
     assert.equal(user!.emailVerified, true);
     assert.equal(user!.createdAt.toISOString(), new Date(1700000000000).toISOString());
+    const google = await one(db, 'SELECT "accessToken", "refreshToken", "idToken", "accountId" FROM "account" WHERE id = $1', ["legacy-google"]);
+    assert.deepEqual(google, { accessToken: null, refreshToken: null, idToken: null, accountId: "google-identity" }, "Import preserves identity without copying unused Google tokens");
     const order = await one(db, 'SELECT * FROM "appOrder" WHERE id = $1', ["legacy-order"]);
     assert.equal(order!.status, "processing"); assert.equal(order!.amountPaisa, 1390);
     assert.equal(order!.deliveryWindowMinutes, 0); assert.equal(order!.deliveryPlan, null);

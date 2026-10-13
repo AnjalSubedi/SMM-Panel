@@ -44,12 +44,17 @@ Quantity mappings use `data/suvakrio-services.json`, verified against all nine p
 - `lib/providerCatalog.ts`, `config/serviceQuantityMappings.json`: equivalent-service quantity limits shared by the UI, catalog endpoint and server checkout.
 - `config/site.ts`: public contacts and the supplied eSewa QR at `public/esewa-qr.jpg`.
 
+## Security
+
+See [the security review](docs/SECURITY_REVIEW.md) for the fixes, verification scope and required Vercel auth-secret rotation. The new local secret stays in ignored .env.local and must be copied into the cloud environment separately.
+
 ## Checks
 
 ```powershell
 npm.cmd run typecheck
 npm.cmd run test:accounts
 npm.cmd run build
+npm.cmd run test:security:production
 ```
 
 Browser and HTTP QA instructions are in [the setup guide](docs/ACCOUNTS_SETUP.md#verification). Private configuration and legacy database files are ignored. PostgreSQL stores accounts, orders and balances outside Vercel Functions. See [Vercel hosting](docs/VERCEL_HOSTING.md) and [PostgreSQL migration](docs/POSTGRESQL_MIGRATION.md).

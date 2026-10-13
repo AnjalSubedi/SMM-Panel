@@ -1,4 +1,7 @@
 import "server-only";
+import { APIError } from "better-auth/api";
+import { authOrigin, trustedIpHeaders } from "./request-security";
+import { isPublicWebLink } from "../publicLinks";
 import { betterAuth } from "better-auth";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -17,13 +20,14 @@ function secret(): string {
 
 function authSettings() {
   return {
-    baseURL: process.env.BETTER_AUTH_URL?.trim() || "http://localhost:3000",
+    baseURL: authOrigin(),
     secret: secret(),
     googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || "",
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() || "",
     emailApiKey: process.env.RESEND_API_KEY?.trim() || "",
     emailFrom: process.env.AUTH_EMAIL_FROM?.trim() || "",
     production: process.env.NODE_ENV === "production",
+    ipAddressHeaders: trustedIpHeaders(),
     databaseUrl: process.env.DATABASE_URL?.trim() || "",
   };
 }
@@ -40,6 +44,18 @@ async function sendAuthEmail(settings: AuthSettings, to: string, subject: string
   if (!response.ok) throw new Error("Unable to send account email. Please try again later.");
 }
 
+function safeProfile(user: { name?: unknown; image?: unknown }): { name?: string; image?: string | null } {
+  const fields: { name?: string; image?: string | null } = {};
+  if (user.name !== undefined) {
+    if (typeof user.name !== "string" || !user.name.trim() || user.name.trim().length > 80 || /[\u0000-\u001f\u007f]/.test(user.name)) throw new APIError("BAD_REQUEST", { message: "Use a display name between 1 and 80 characters." });
+    fields.name = user.name.trim();
+  }
+  if (user.image !== undefined) {
+    if (user.image !== null && (typeof user.image !== "string" || !isPublicWebLink(user.image))) throw new APIError("BAD_REQUEST", { message: "Use a public HTTP(S) profile image URL." });
+    fields.image = user.image as string | null;
+  }
+  return fields;
+}
 function buildAuth(settings: AuthSettings) {
   const googleConfigured = Boolean(settings.googleClientId && settings.googleClientSecret);
   const emailConfigured = Boolean(settings.emailApiKey && settings.emailFrom);
@@ -48,6 +64,22 @@ function buildAuth(settings: AuthSettings) {
     baseURL: settings.baseURL,
     secret: settings.secret,
     database: getDb(),
+    trustedOrigins: [settings.baseURL],
+    // Google is used for identity only; no feature needs ongoing Google API access.
+    account: { accountLinking: { enabled: true, requireLocalEmailVerified: true, allowDifferentEmails: false, allowUnlinkingAll: false }, storeAccountCookie: false },
+    databaseHooks: {
+      user: {
+        create: { before: async user => ({ data: { ...user, ...safeProfile(user) } }) },
+        update: { before: async user => ({ data: { ...user, ...safeProfile(user) } }) },
+      },
+      account: {
+        create: { before: async account => ({ data: account.providerId === "google" ? { ...account, accessToken: null, refreshToken: null, idToken: null } : account }) },
+        update: { before: async account => {
+          // OAuth callback, implicit link and refresh all persist through these hooks.
+          if (account.accessToken !== undefined || account.refreshToken !== undefined || account.idToken !== undefined) return { data: { ...account, accessToken: null, refreshToken: null, idToken: null } };
+        } },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       disableSignUp: settings.production && !emailConfigured,
@@ -67,7 +99,7 @@ function buildAuth(settings: AuthSettings) {
     } : {},
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60, customRules: { "/sign-in/email": { window: 60, max: 8 }, "/sign-up/email": { window: 60, max: 5 }, "/request-password-reset": { window: 60, max: 3 } } },
-    advanced: { cookiePrefix: "dmnp", useSecureCookies: settings.baseURL.startsWith("https://") },
+    advanced: { cookiePrefix: "dmnp", useSecureCookies: settings.baseURL.startsWith("https://"), ipAddress: { ipAddressHeaders: settings.ipAddressHeaders }, defaultCookieAttributes: { httpOnly: true, sameSite: "lax" } },
   });
 }
 

@@ -32,6 +32,7 @@ export async function importSqlite(filename: string) {
           const names = Object.keys(row).filter((name) => types.has(name));
           const values = names.map((name) => {
             const value = row[name];
+            if (table === "account" && row.providerId === "google" && ["accessToken", "refreshToken", "idToken"].includes(name)) return null;
             if (value === null) return null;
             if (types.get(name) === "boolean") return Boolean(value);
             if (types.get(name)?.startsWith("timestamp")) {

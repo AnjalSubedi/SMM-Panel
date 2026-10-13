@@ -1,3 +1,4 @@
+import { isPublicWebLink } from "../publicLinks";
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -72,6 +73,7 @@ function quote(input: OrderInput): { item: CatalogItem; amountPaisa: number; qua
   const required = requiredPlatforms(item);
   const supplied = new Map(input.links.map((entry) => [entry.platform, entry.url]));
   if (supplied.size !== input.links.length || required.length !== supplied.size || required.some((platform) => !supplied.has(platform))) throw new AppError("Provide exactly one public link for each platform in this order.");
+  if (input.links.some(link => !isPublicWebLink(link.url, link.platform))) throw new AppError("Use a public link from the selected platform, without login details, private addresses or custom ports.");
   return { item, amountPaisa, quantity, links: required.map((platform) => ({ platform, url: supplied.get(platform)! })) };
 }
 
