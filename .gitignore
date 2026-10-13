@@ -1,0 +1,37 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env*
+.npm-cache/
+.qa/
+
+.runtime/
+
+!.env.example
+
+# Hosting/IDE state and local credentials
+.vercel/
+.vscode/
+.idea/
+.codex/
+.agents/
+.aws/
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases, backups and exports
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.bak
+*.backup
+
+# Original design assets; runtime images live in public/
+/Images/

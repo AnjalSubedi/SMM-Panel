@@ -1,0 +1,128 @@
+{
+  "FB_01": {
+    "providerServiceId": 1731
+  },
+  "FB_02": {
+    "providerServiceId": 1728
+  },
+  "FB_03": {
+    "providerServiceId": 1768
+  },
+  "FB_05": {
+    "providerServiceId": 1756
+  },
+  "FB_07": {
+    "providerServiceId": 1740
+  },
+  "FB_08": {
+    "providerServiceId": 1741,
+    "quantityPerProviderUnit": 60000,
+    "preserveFixedQuantity": true
+  },
+  "FB_10": {
+    "providerServiceId": 1748
+  },
+  "FB_11": {
+    "providerServiceId": 1765
+  },
+  "FB_12": {
+    "providerServiceId": 1761
+  },
+  "FB_14": {
+    "providerServiceId": 1767
+  },
+  "IG_01": {
+    "providerServiceId": 1914
+  },
+  "IG_02": {
+    "providerServiceId": 1917
+  },
+  "IG_03": {
+    "providerServiceId": 1723
+  },
+  "IG_04": {
+    "providerServiceId": 1695
+  },
+  "IG_06": {
+    "providerServiceId": 1688
+  },
+  "IG_07": {
+    "providerServiceId": 1702
+  },
+  "IG_10": {
+    "providerServiceId": 1712
+  },
+  "IG_11": {
+    "providerServiceId": 1704
+  },
+  "YT_03": {
+    "providerServiceId": 1777
+  },
+  "YT_04": {
+    "providerServiceId": 1776
+  },
+  "YT_05": {
+    "providerServiceId": 1921
+  },
+  "YT_06": {
+    "providerServiceId": 1921,
+    "preserveFixedQuantity": true
+  },
+  "YT_07": {
+    "providerServiceId": 1793
+  },
+  "YT_08": {
+    "providerServiceId": 1798
+  },
+  "YT_10": {
+    "providerServiceId": 1795
+  },
+  "TT_01": {
+    "providerServiceId": 1682
+  },
+  "TT_02": {
+    "providerServiceId": 1832
+  },
+  "TT_03": {
+    "providerServiceId": 1823
+  },
+  "TT_04": {
+    "providerServiceId": 1823
+  },
+  "TT_05": {
+    "providerServiceId": 1825
+  },
+  "TT_06": {
+    "providerServiceId": 1840
+  },
+  "TG_01": {
+    "providerServiceId": 1867
+  },
+  "TG_03": {
+    "providerServiceId": 1854
+  },
+  "TW_01": {
+    "providerServiceId": 1817
+  },
+  "TW_02": {
+    "providerServiceId": 1819
+  },
+  "TW_03": {
+    "providerServiceId": 1820
+  },
+  "TW_04": {
+    "providerServiceId": 1815
+  },
+  "LI_02": {
+    "providerServiceId": 1906
+  },
+  "SP_01": {
+    "providerServiceId": 1878
+  },
+  "SP_02": {
+    "providerServiceId": 1877
+  },
+  "WD_02": {
+    "providerServiceId": 1890
+  }
+}
