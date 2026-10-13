@@ -1,0 +1,18 @@
+import "server-only";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { getMigrations } from "better-auth/db/migration";
+import { getAuth } from "./auth";
+import { transaction } from "./db";
+
+export async function migrateDatabase() {
+  const auth = await getAuth();
+  await transaction(async (db) => {
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('dmnp-schema-migration', 0))");
+    const migrations = await getMigrations(auth.options);
+    await migrations.runMigrations();
+    await db.query(await readFile(resolve("migrations/001-commerce.sql"), "utf8"));
+    await db.query('CREATE TABLE IF NOT EXISTS "appMigration" ("id" TEXT PRIMARY KEY, "appliedAt" TEXT NOT NULL)');
+    await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["001-commerce", new Date().toISOString()]);
+  });
+}

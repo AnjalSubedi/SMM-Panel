@@ -1,11 +1,12 @@
 # Digital Marketing NP
 
-Next.js App Router, TypeScript, Tailwind CSS 4, Better Auth, and SQLite. A light storefront with a 58-service catalog, four bundles, customer accounts, wallet payments, direct eSewa orders, and an admin operations panel.
+Next.js App Router, TypeScript, Tailwind CSS 4, Better Auth, and PostgreSQL. A light storefront with a 58-service catalog, four bundles, customer accounts, wallet payments, direct eSewa orders, and an admin operations panel.
 
 ## Run locally
 
 ```powershell
 npm.cmd install
+# Set DATABASE_URL and auth settings in .env.local first.
 npm.cmd run accounts:setup
 npm.cmd run dev
 ```
@@ -51,4 +52,12 @@ npm.cmd run test:accounts
 npm.cmd run build
 ```
 
-Browser and HTTP QA instructions are in [the setup guide](docs/ACCOUNTS_SETUP.md#verification). Private configuration and runtime database files are ignored. SQLite requires persistent storage; do not use an ephemeral serverless filesystem for account balances.
+Browser and HTTP QA instructions are in [the setup guide](docs/ACCOUNTS_SETUP.md#verification). Private configuration and legacy database files are ignored. PostgreSQL stores accounts, orders and balances outside Vercel Functions. See [Vercel hosting](docs/VERCEL_HOSTING.md) and [PostgreSQL migration](docs/POSTGRESQL_MIGRATION.md).
+
+## PostgreSQL and existing data
+
+Set the private `DATABASE_URL` from Neon, Supabase or another PostgreSQL provider. `npm run db:migrate` creates/updates authentication and commerce tables explicitly; application requests never run DDL. For Vercel, set the Build Command to `npm run db:migrate && npm run build` after configuring environment variables.
+
+To preserve existing local data, stop the old app and run `npm run db:import-sqlite -- .runtime/digitalmarketing.sqlite` against an empty PostgreSQL target before signing up there. The importer preserves accounts, password hashes, wallet balances/ledger, orders, reviews, delivery settings and audit records. The source is read-only and sessions/reset tokens are not imported; users sign in again. It refuses nonempty targets and checks row counts and wallet reconciliation.
+
+`npm run test:accounts` starts isolated real PostgreSQL and verifies transactions and concurrent retries without using hosted credentials. `npm run test:browser` additionally runs the local HTTP/browser flows with simulated payments and a hidden Chrome instance. No provider API requests are used.

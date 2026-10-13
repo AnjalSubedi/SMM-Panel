@@ -1,9 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { MASTER_SERVICE_CATALOG } from "../config/catalogData";
 import snapshot from "../data/suvakrio-services.json";
 import mappings from "../config/serviceQuantityMappings.json";
@@ -40,23 +36,4 @@ test("service minimums, totals, intervals and unsupported services are enforced"
     assert.ok(plan.quantityPerRun >= follower.min!);
     assert.equal((plan.runs - 1) * plan.intervalMinutes, minutes);
   }
-});
-
-test("existing orders gain delivery defaults without changing balances or statuses", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "dmnp-delivery-migration-"));
-  process.env.DATABASE_PATH = join(directory, "legacy.sqlite");
-  const legacy = new DatabaseSync(process.env.DATABASE_PATH);
-  legacy.exec("CREATE TABLE appOrder (id TEXT PRIMARY KEY, userId TEXT, email TEXT, itemId TEXT, itemKind TEXT, itemName TEXT, quantity INTEGER, amountPaisa INTEGER, links TEXT, method TEXT, status TEXT, requestScope TEXT, requestKey TEXT, createdAt TEXT, updatedAt TEXT)");
-  legacy.exec("INSERT INTO appOrder VALUES ('legacy', NULL, 'legacy@example.test', 'FB_03', 'service', 'Existing order', 100, 1390, '[]', 'direct', 'processing', 'legacy', 'legacy', '2026-10-01', '2026-10-01')");
-  legacy.close();
-  const { getDb } = await import("../lib/server/db");
-  const db = getDb();
-  try {
-    const order = db.prepare("SELECT * FROM appOrder WHERE id = 'legacy'").get()!;
-    assert.equal(order.status, "processing");
-    assert.equal(order.amountPaisa, 1390);
-    assert.equal(order.deliveryWindowMinutes, 0);
-    assert.equal(order.deliveryPlan, null);
-    assert.equal(getDb(), db, "Cached connection also works after migration");
-  } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
 });

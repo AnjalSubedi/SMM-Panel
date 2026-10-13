@@ -4,6 +4,6 @@ export const runtime = "nodejs";
 export async function POST(request: Request) { return api(async () => {
   const user = await authenticated(request);
   const input = await body(request, deliverySchema);
-  rateLimit("delivery:" + user.id, 15);
-  return json(chooseDelivery(input, user));
+  await rateLimit("delivery:" + user.id, 15);
+  return json(await chooseDelivery(input, user));
 }); }

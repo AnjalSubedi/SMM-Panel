@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
-
 async function main() {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  const { getAuth } = await import("../lib/server/auth");
-  await getAuth();
-  console.log("Account database and authentication tables are ready.");
+  const { migrateDatabase } = await import("../lib/server/migrations");
+  const { closeDb } = await import("../lib/server/db");
+  try { await migrateDatabase(); console.log("PostgreSQL authentication and commerce tables are ready."); }
+  finally { await closeDb(); }
 }
-main().catch((error) => { console.error(error instanceof Error ? error.message : "Setup failed."); process.exitCode = 1; });
+main().catch(() => { console.error("PostgreSQL setup failed. Check DATABASE_URL, network access and database permissions. No credentials are logged."); process.exitCode = 1; });

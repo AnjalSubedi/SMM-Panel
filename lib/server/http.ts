@@ -38,10 +38,9 @@ export async function authenticated(request: Request, admin = false) {
   return user;
 }
 
-export function rateLimit(key: string, max = 15) {
+export async function rateLimit(key: string, max = 15) {
   const db = getDb();
   const bucket = Math.floor(Date.now() / 60000);
-  db.prepare("INSERT INTO appLimit(key,bucket,count) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN appLimit.bucket = excluded.bucket THEN appLimit.count + 1 ELSE 1 END, bucket = excluded.bucket").run(key, bucket);
-  const row = db.prepare("SELECT count FROM appLimit WHERE key = ?").get(key) as { count: number };
-  if (row.count > max) throw new AppError("Too many requests. Please wait a minute.", 429);
+  const result = await db.query<{ count: number }>('INSERT INTO "appLimit" (key,bucket,count) VALUES ($1,$2,1) ON CONFLICT (key) DO UPDATE SET count = CASE WHEN "appLimit".bucket = EXCLUDED.bucket THEN "appLimit".count + 1 ELSE 1 END, bucket = EXCLUDED.bucket RETURNING count', [key, bucket]);
+  if (result.rows[0].count > max) throw new AppError("Too many requests. Please wait a minute.", 429);
 }

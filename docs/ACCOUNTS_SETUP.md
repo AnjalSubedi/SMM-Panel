@@ -16,7 +16,7 @@ The configured owner is **digitalmarketingnp0@gmail.com**. Registering that emai
 
 ## Local startup
 
-An ignored `.env.local` with a random authentication secret and a local database has been created. Real credentials are never committed.
+An ignored `.env.local` contains local credentials. Set `DATABASE_URL` to your PostgreSQL connection string before startup. Real credentials are never committed.
 
 ```powershell
 npm.cmd install
@@ -114,13 +114,13 @@ Paid orders enter the queue. The admin can record a provider reference, mark pro
 
 ## Storage and deployment
 
-Requires Node.js 22.13+ and a long-running Node server with persistent disk. The default SQLite database is `.runtime/digitalmarketing.sqlite`; set `DATABASE_PATH` to a mounted persistent location on your server. Keep the database, WAL and related files private and maintain database-consistent backups.
+Requires Node.js 22.13+ and hosted PostgreSQL through the private `DATABASE_URL` environment variable. Remote connections require verified TLS. The application uses a small connection pool and asynchronous transactions with row locks, request locks and unique constraints. Money remains integer paisa.
 
-Do not deploy this SQLite configuration to an ephemeral serverless filesystem or separate instances with separate databases. Use a shared transactional database such as PostgreSQL before moving to that deployment model.
+Run `npm run db:migrate` before serving a new database. On Vercel, use Build Command `npm run db:migrate && npm run build` and separate databases for Production and Preview. Normal requests do not create tables or run migrations. Set a unique, stable `BETTER_AUTH_SECRET` of at least 32 characters in production; the local fallback secret is not a production fallback.
 
-Set a unique `BETTER_AUTH_SECRET` of at least 32 characters in production. The development fallback secret is stored privately under `.runtime/`; it is not a production fallback. `.runtime/`, `.env*` and `.qa/` are excluded from deployment tracing.
+Existing SQLite data can be imported into an empty PostgreSQL database using `npm run db:import-sqlite -- .runtime/digitalmarketing.sqlite`. Stop the old app first. The importer opens the source read-only and checks counts and wallet/ledger reconciliation in a PostgreSQL transaction. Existing targets are never overwritten. Users must sign in again because active sessions and reset tokens are not copied. See [migration details](POSTGRESQL_MIGRATION.md).
 
-The catalog and its prices remain in the original, unmodified `config/catalogData.js`. Quantity limits are derived in `lib/services.ts` using explicit equivalents in `config/serviceQuantityMappings.json` and the local public-page snapshot. Unmatched services retain configured limits. The storefront, catalog endpoint and checkout share these limits. Mappings do not enable automatic provider fulfillment or use the API key.
+The catalog and its prices remain in the original, unmodified `config/catalogData.js`. Quantity limits use explicit equivalents in `config/serviceQuantityMappings.json` and the local public-page snapshot. Unmatched services retain configured limits. The storefront, catalog endpoint and checkout share those limits. Mappings do not enable automatic provider fulfillment or use the API key.
 
 ## Verification
 
@@ -132,28 +132,13 @@ npm.cmd run build
 
 The account tests use a temporary database and cover authorization, password hashing, pending deposits, one-time credits, server pricing, atomic debits, overspending prevention, payment replay, bundles, and paid-order state transitions.
 
-For full HTTP/browser QA, start an **isolated** development server:
+For full HTTP/browser QA, run the isolated PostgreSQL and browser runner:
 
 ```powershell
-$env:DATABASE_PATH='.qa/accounts-e2e.sqlite'
-$env:NEXT_DIST_DIR='.qa/next-accounts-e2e'
-$env:BETTER_AUTH_URL='http://localhost:3002'
-$env:ADMIN_EMAIL='qa-owner@example.test'
-$env:RESEND_API_KEY=''
-$env:AUTH_EMAIL_FROM=''
-$env:GOOGLE_CLIENT_ID=''
-$env:GOOGLE_CLIENT_SECRET=''
-$env:SUVAKRIO_API_KEY=''
-npm.cmd run dev -- --port 3002
+npm.cmd run test:browser
 ```
 
-From a second terminal:
-
-```powershell
-node scripts/verify-accounts-http.cjs
-```
-
-`scripts/verify-accounts-browser.cjs` additionally needs an isolated Chrome instance with `--remote-debugging-port=9223` and a unique profile in the system temporary folder. It is restricted to localhost:3002 and the disposable QA database. It simulates verified payments there only, never in the actual account database.
+This runner uses a temporary local PostgreSQL cluster, localhost:3002, hidden Chrome on port 9223, fake credentials and simulated payments. No hosted database or provider key is used.
 
 Google's external OAuth callback and real email delivery require credentials and must be verified after those are configured. eSewa approvals are manual checks against real merchant receipts; the application does not treat a typed reference as automatic payment proof.
 
@@ -167,4 +152,4 @@ The plan uses whole, equal batches, each at least the verified service minimum, 
 
 Provider dispatch remains manual. Admin orders display Suvakrio's per-run quantity, runs, interval and service reference. Quantity must be per run: entering the full order quantity alongside runs would multiply delivery and provider charges. Admins must confirm the configured schedule before changing a timed order's delivery status. Verify the exact provider variant and drip-feed support before dispatch. The selected timeframe starts with the first batch dispatch; it is not a guaranteed completion deadline.
 
-The database adds delivery columns idempotently and preserves existing orders, statuses and amounts. Tests use disposable databases and never call the provider API.
+Explicit PostgreSQL migrations add delivery columns idempotently and preserve existing orders, statuses and amounts. Tests use disposable PostgreSQL databases and never call the provider API.

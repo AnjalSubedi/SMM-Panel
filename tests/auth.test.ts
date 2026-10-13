@@ -1,13 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { testDatabase } from "./helpers/postgres";
 
 test("auth refreshes cached Google configuration without external API calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "dmnp-auth-test-"));
-  process.env.DATABASE_PATH = join(directory, "test.sqlite");
+
   process.env.BETTER_AUTH_SECRET = "isolated-auth-test-secret-" + randomUUID();
   process.env.BETTER_AUTH_URL = "http://localhost:3000";
   delete process.env.GOOGLE_CLIENT_ID;
@@ -16,8 +13,8 @@ test("auth refreshes cached Google configuration without external API calls", as
   delete process.env.AUTH_EMAIL_FROM;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("External network calls are forbidden in this test."); };
+  const database = await testDatabase();
   const { getAuth } = await import("../lib/server/auth");
-  const { getDb } = await import("../lib/server/db");
   try {
     const before = await getAuth();
     assert.ok(!before.options.socialProviders?.google);
@@ -53,7 +50,6 @@ test("auth refreshes cached Google configuration without external API calls", as
     assert.ok((await getAuth()).options.socialProviders?.google, "Restoring credentials enables Google again");
   } finally {
     globalThis.fetch = originalFetch;
-    getDb().close();
-    rmSync(directory, { recursive: true, force: true });
+    await database.close();
   }
 });

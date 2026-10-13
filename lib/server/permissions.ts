@@ -1,10 +1,9 @@
 import "server-only";
 import { adminEmail } from "./auth";
-import { getDb } from "./db";
-
-export function isAdminId(userId: string): boolean {
+import { getDb, one } from "./db";
+export async function isAdminId(userId: string): Promise<boolean> {
   const db = getDb();
-  if (db.prepare("SELECT userId FROM appAdmin WHERE userId = ?").get(userId)) return true;
-  const owner = db.prepare("SELECT email, emailVerified FROM user WHERE id = ?").get(userId) as { email: string; emailVerified: number } | undefined;
+  if (await one(db, 'SELECT "userId" FROM "appAdmin" WHERE "userId" = $1', [userId])) return true;
+  const owner = await one<{ email: string; emailVerified: boolean }>(db, 'SELECT email, "emailVerified" FROM "user" WHERE id = $1', [userId]);
   return Boolean(owner && owner.email.toLowerCase() === adminEmail && owner.emailVerified);
 }

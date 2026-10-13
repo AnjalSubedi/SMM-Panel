@@ -4,11 +4,9 @@ Checked against the project and official documentation on 13 October 2026.
 
 ## Current readiness
 
-The Next.js frontend builds successfully. The full application is not yet ready to deploy on Vercel: authentication, orders, wallet balances and payment review currently use a local SQLite file through node:sqlite. Vercel Functions do not provide the shared persistent local disk this design requires. Setting DATABASE_PATH to /tmp does not solve persistence or consistency.
+The application now uses PostgreSQL for authentication, orders, wallet balances, payment review and delivery choices. Configure `DATABASE_URL` and run the explicit schema setup before deploying. Normal requests do not use a local database file or run DDL. The optional SQLite importer is an offline utility, not a server route.
 
-Required application work before deployment: migrate authentication and the commerce database layer to hosted PostgreSQL, preserving wallet transactions, payment idempotency, order history, admin authorization and delivery choices. Adding DATABASE_URL alone will not change the existing SQLite implementation. Do not enable production payments until this migration and its checks are complete.
-
-Recommended setup: Vercel for Next.js, Neon PostgreSQL for persistent data, Google OAuth for sign-in, and the existing optional email sender for email verification/recovery. Provider fulfillment remains manual and does not need a Suvakrio API key in Vercel yet.
+Recommended setup: Vercel for Next.js, Neon PostgreSQL through Vercel Marketplace for persistent data, Google OAuth for sign-in, and the optional verified email sender for email registration/recovery. Provider fulfillment remains manual and does not need a Suvakrio API key in Vercel yet.
 
 ## 1. Create your Vercel account
 
@@ -19,9 +17,11 @@ Recommended setup: Vercel for Next.js, Neon PostgreSQL for persistent data, Goog
 
 ## 2. Create the database
 
-Create a Neon PostgreSQL project through https://neon.com or Vercel Marketplace. Choose compatible locations for the database and Vercel Functions to reduce latency. Follow the provider's connection instructions and save the connection string privately as DATABASE_URL. Keep the provider's TLS settings.
+In Vercel Marketplace, install Neon, create the database, and connect it to your SMM-Panel project. The integration automatically adds connection environment variables to Vercel. Check Project Settings > Environment Variables for `DATABASE_URL`; if it is already present, you do not need to enter the URL manually. The app still uses this URL to connect. Choose compatible locations for the database and Vercel Functions to reduce latency. Keep the provider's TLS settings.
 
-The application must then be migrated to PostgreSQL and initialized before deploying the complete site. Use a separate test database for tests/previews. Existing local accounts and balances do not move to Neon automatically; decide which existing records should be imported and verify their balances after import.
+The dashboard integration does not update your local `.env.local`. A local database URL is needed only to run the app against PostgreSQL locally or import your old local data. Keep the URL private.
+
+Run `npm run db:migrate` to initialize the database. Use separate databases for previews and production. To preserve existing local accounts and balances, import the old SQLite file before signing up in the new target; see [PostgreSQL migration](POSTGRESQL_MIGRATION.md).
 
 Never post the database URL, OAuth secret, or auth secret in chat or commit them to GitHub.
 
@@ -38,18 +38,18 @@ The local project has been initialized with Git. To publish future changes in VS
 
 Do not manually upload the whole folder through GitHub's browser file uploader. Never upload .env.local, the SQLite database, runtime files or test database files. Commit public/esewa-qr.jpg because the website displays that image publicly.
 
-## 4. Import into Vercel after the database migration is ready
+## 4. Import into Vercel
 
 1. In Vercel, choose Add New > Project.
 2. Connect GitHub and grant access to the specific private repository.
-3. Import digital-marketing-np.
-4. Use Framework Preset: Next.js, Root Directory: project root, Build Command: npm run build, and the default Next.js output settings.
+3. Import AnjalSubedi/SMM-Panel.
+4. Use Framework Preset: Next.js, Root Directory: project root, Build Command: npm run db:migrate && npm run build, and the default Next.js output settings.
 5. Choose a supported Node.js version compatible with the completed application; Node 22.x matches the current project runtime baseline.
 6. Add the production environment variables before the first complete deployment.
 
 ## 5. Production environment variables
 
-These settings describe the intended PostgreSQL deployment after migration. The current SQLite code does not yet read DATABASE_URL.
+These settings configure the PostgreSQL application. Vercel Marketplace can provision Neon and inject its connection variables. Ensure the connection URL is available as `DATABASE_URL`.
 
 | Variable | Production value/purpose |
 | --- | --- |

@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
-const { DatabaseSync } = require('node:sqlite');
+const { Pool } = require('pg');
 const path = require('node:path');
 
 const base = process.env.QA_URL || 'http://localhost:3002';
@@ -72,10 +72,10 @@ async function main() {
     const ownerPassword = 'Isolated-Test-Owner-Password-2026!';
     const registerOwner = await browserPost('/api/auth/sign-up/email', { email: ownerEmail, name: 'QA Owner', password: ownerPassword });
     assert.ok([200, 422].includes(registerOwner.status), JSON.stringify(registerOwner));
-    const database = path.resolve('.qa/accounts-e2e.sqlite');
-    assert.ok(database.startsWith(path.resolve('.qa') + path.sep));
-    const db = new DatabaseSync(database);
-    db.prepare('UPDATE user SET emailVerified = 1 WHERE email = ?').run(ownerEmail); db.close();
+    const databaseURL = new URL(process.env.QA_DATABASE_URL || '');
+    if (databaseURL.hostname !== '127.0.0.1' || databaseURL.username !== 'dmnp_test' || databaseURL.pathname !== '/dmnp_qa') throw new Error('Browser tests only modify the isolated local PostgreSQL QA database.');
+    const db = new Pool({ connectionString: databaseURL.toString(), max: 1 });
+    try { await db.query('UPDATE "user" SET "emailVerified" = TRUE WHERE email = $1', [ownerEmail]); } finally { await db.end(); }
     const loginOwner = await browserPost('/api/auth/sign-in/email', { email: ownerEmail, password: ownerPassword });
     assert.equal(loginOwner.status, 200);
     await go('/admin', "document.body.textContent.includes('Operations dashboard')");

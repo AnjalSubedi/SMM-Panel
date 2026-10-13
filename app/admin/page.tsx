@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export default async function AdminPage() {
   const user = await requireUserPage(true);
-  return <AdminDashboard initial={adminData(user.id)} />;
+  return <AdminDashboard initial={await adminData(user.id)} />;
 }

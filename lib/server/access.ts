@@ -9,7 +9,7 @@ export async function currentUser(requestHeaders?: Headers): Promise<AccountUser
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers: requestHeaders ?? await headers(), query: { disableCookieCache: true } });
   if (!session) return null;
-  return { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified, isAdmin: isAdminId(session.user.id) };
+  return { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified, isAdmin: await isAdminId(session.user.id) };
 }
 
 export async function requireUserPage(admin = false): Promise<AccountUser> {

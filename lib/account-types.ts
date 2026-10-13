@@ -12,7 +12,7 @@ export type PaymentRecord = {
 export type LedgerRecord = { id: string; amountPaisa: number; kind: string; sourceId: string; createdAt: string };
 export type AccountData = { user: AccountUser; balancePaisa: number; orders: OrderRecord[]; deliveryServices: CatalogItem[]; payments: PaymentRecord[]; ledger: LedgerRecord[] };
 export type AdminData = {
-  users: { id: string; name: string; email: string; emailVerified: number; createdAt: string; balancePaisa: number }[];
+  users: { id: string; name: string; email: string; emailVerified: boolean; createdAt: string; balancePaisa: number }[];
   payments: (PaymentRecord & { email: string; itemName: string | null })[]; orders: OrderRecord[];
   audit: { id: string; action: string; targetId: string; note: string; createdAt: string; actorEmail: string }[];
   totals: { users: number; pendingPayments: number; queuedOrders: number; walletLiabilityPaisa: number };

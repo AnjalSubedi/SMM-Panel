@@ -1,6 +1,5 @@
 import "server-only";
 import { betterAuth } from "better-auth";
-import { getMigrations } from "better-auth/db/migration";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { getDb } from "./db";
@@ -25,6 +24,7 @@ function authSettings() {
     emailApiKey: process.env.RESEND_API_KEY?.trim() || "",
     emailFrom: process.env.AUTH_EMAIL_FROM?.trim() || "",
     production: process.env.NODE_ENV === "production",
+    databaseUrl: process.env.DATABASE_URL?.trim() || "",
   };
 }
 type AuthSettings = ReturnType<typeof authSettings>;
@@ -81,11 +81,9 @@ export function getAuth(): Promise<AppAuth> {
   if (!state.dmnpAuth || state.dmnpAuthKey !== key) {
     const previous = state.dmnpAuth;
     const pending = (async () => {
-      // Avoid overlapping schema migrations when configuration changes mid-request.
+      // Finish initialization before replacing changed settings.
       if (previous) await previous.catch(() => undefined);
       const auth = buildAuth(settings);
-      const migrations = await getMigrations(auth.options);
-      await migrations.runMigrations();
       return auth;
     })().catch((error) => {
       if (state.dmnpAuth === pending) {
