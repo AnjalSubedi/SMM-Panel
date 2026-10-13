@@ -43,6 +43,7 @@ export default function AccountNav() {
   if (!session) return <a href="/login" className="button-secondary min-h-10 shrink-0 px-3 text-xs sm:text-[13px]"><LogIn size={15} aria-hidden="true" />Sign in</a>;
   const links = [
     { label: "Dashboard", href: "/account", icon: LayoutDashboard },
+    { label: "Place an order", href: "/account#new-order", icon: ShoppingBag },
     { label: "Browse services", href: "/services#calculator", icon: ShoppingBag },
     { label: "My orders", href: "/account#orders", icon: ShoppingBag },
     { label: "Add funds", href: "/account#add-funds", icon: Wallet },

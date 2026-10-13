@@ -73,6 +73,9 @@ async function main() {
     await waitFor("document.body.textContent.includes('Profile updated.')");
     await waitFor("document.querySelector('button[aria-haspopup=menu]').getAttribute('aria-label').includes('Browser Updated')");
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
+    assert.equal(await evaluate("document.querySelector('#new-order').compareDocumentPosition(document.querySelector('#orders')) & Node.DOCUMENT_POSITION_FOLLOWING"), 4, 'Order form precedes history');
+    assert.equal(await evaluate("document.querySelector('#packages') === null"), true, 'Packages stay on the services page');
+    assert.equal(await evaluate("document.querySelectorAll('#service-platform option').length"), 10, 'Dashboard offers all nine platforms');
     await screenshot('account');
     const reference = ('BROWSER-DEPOSIT-' + randomUUID()).toUpperCase();
     await set('#deposit-reference', reference);
@@ -99,9 +102,18 @@ async function main() {
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
 
 
-    await go('/services#calculator', "!!document.querySelector('#service-platform')");
+    await go('/account#new-order', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('You need')");
+    await set('#public-url-0', 'https://facebook.com/dashboard-saved-draft');
+    await evaluate("document.querySelector('dialog a[href*=\"resume=1\"]').click()");
+    await waitFor("location.pathname === '/account' && !!document.querySelector('a[href=\"/account?resumeOrder=1#new-order\"]')");
+    await evaluate("document.querySelector('a[href=\"/account?resumeOrder=1#new-order\"]').click()");
+    await waitFor("location.pathname === '/account' && document.querySelector('dialog')?.open");
+    assert.equal(await evaluate("document.querySelector('#public-url-0').value"), 'https://facebook.com/dashboard-saved-draft', 'Dashboard checkout restores the public link after visiting add funds');
+    assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');
+    assert.match(await evaluate("document.querySelector('dialog').textContent"), /186.25/);
+
     assert.equal(await evaluate("document.querySelector('dialog form button:not([type])').disabled"), true);
     await screenshot('wallet-insufficient');
     await click('Pay directly with eSewa');
@@ -112,6 +124,8 @@ async function main() {
     await waitFor("document.querySelector('dialog')?.textContent.includes('Payment submitted for review')");
     await screenshot('direct-payment-success');
     const directId = await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.orders[0].id)");
+    await waitFor("!!document.getElementById('order-" + directId + "')");
+    assert.equal(await evaluate('location.pathname'), '/account', 'Direct checkout completes inside the dashboard');
     const tooEarly = await browserPost('/api/account/orders/delivery', { orderId: directId, deliveryWindowMinutes: 60 });
     assert.equal(tooEarly.status, 409, 'Timing stays locked before approval');
 
@@ -149,12 +163,17 @@ async function main() {
     await click('Confirm gradual delivery');
     await waitFor(`!document.querySelector('[data-delivery-order="${directId}"]') && document.body.textContent.includes('Spread over 1 hour')`);
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 50000, 'Choosing a timeframe does not charge the wallet');
-    await go('/services#calculator', "!!document.querySelector('#service-platform')");
+    await go('/account#new-order', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('NPR 500')");
     await set('#public-url-0', 'https://facebook.com/browser-wallet');
     await evaluate("document.querySelector('dialog form button:not([type])').click()");
     await waitFor("document.querySelector('dialog')?.textContent.includes('Paid from your wallet')");
+    await waitFor("document.querySelector('main').textContent.includes('NPR 313.75') && !!document.querySelector('[data-delivery-order]')");
+    assert.equal(await evaluate('location.pathname'), '/account', 'Wallet checkout refreshes the dashboard without navigation');
+    await screenshot('dashboard-wallet-success');
+    await evaluate("document.querySelector('dialog button[aria-label=\"Close checkout\"]').click()");await waitFor("!document.querySelector('dialog')?.open");
+    await evaluate("document.querySelector('#new-order').scrollIntoView({behavior:'instant'})");await settle();await screenshot('dashboard-order-desktop');
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 31375);
     await go('/account', "document.body.textContent.includes('Payment confirmed. Choose delivery.')");
     await click('Confirm default delivery');
@@ -179,6 +198,7 @@ async function main() {
     assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');
 
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
+    await set('#service-platform', 'Facebook', true);await set('#service-category', 'Followers & subscribers', true);await set('#service-boost', 'FB_01', true);await set('#quantity',100000);
     for (const width of [390, 320, 768]) {
       await call('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true }); await settle();
       assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'), 'Account overflow at ' + width);
@@ -194,6 +214,11 @@ async function main() {
       if (width === 390) await screenshot('notification-popup-mobile');
       await evaluate("document.querySelector('button[aria-label=\"Close notifications\"]').click()");
       if (width === 390) await screenshot('account-mobile');
+      await evaluate("document.querySelector('#new-order').scrollIntoView({behavior:'instant'})");await settle();
+      assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth && document.querySelector('#new-order').scrollWidth<=document.querySelector('#new-order').clientWidth"),'Configured dashboard order fits at '+width);
+      assert.match(await evaluate("document.querySelector('#new-order aside [aria-live]').textContent"),/14,900/);
+      if(width===390)await screenshot('dashboard-order-mobile');
+      await evaluate("scrollTo({top:0,behavior:'instant'})");await settle();
     }
     const adminAgain = await browserPost('/api/auth/sign-in/email', { email: ownerEmail, password: ownerPassword });
     assert.equal(adminAgain.status, 200);
@@ -208,7 +233,7 @@ async function main() {
     await evaluate(`[...document.querySelectorAll('article')].find(a=>a.textContent.includes(${JSON.stringify(directId)})).querySelector('button').click()`);
     await waitFor(`[...document.querySelectorAll('article')].find(a=>a.textContent.includes(${JSON.stringify(directId)}))?.textContent.includes('In progress')`);
     assert.deepEqual(errors, []);
-    console.log('Browser checks passed: real registration/login/logout, deposit review, admin approval, wallet debit, direct order, account history, saved checkout after login, admin authorization and responsive account layout, payment-gated gradual/default delivery selection, exact batch preview and unchanged wallet balance.');
+    console.log('Browser checks passed: real registration/login/logout, deposit review, admin approval, wallet debit, direct order, account history, saved checkout after login, admin authorization and responsive dashboard ordering, saved checkout after adding funds, immediate balance/history refresh, payment-gated gradual/default delivery selection, exact batch preview and unchanged wallet balance.');
   } finally { socket.close(); await fetch('http://localhost:9223/json/close/' + target.id); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
