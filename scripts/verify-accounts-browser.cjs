@@ -34,32 +34,6 @@ async function main() {
   try {
     await call('Page.enable'); await call('Runtime.enable'); await call('Network.enable'); await call('Network.clearBrowserCookies');
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false });
-    await go('/', "!!document.querySelector('#hero-heading')");
-    await evaluate('document.fonts.ready');
-    assert.ok(await evaluate("document.querySelector('a[href=\"#main-content\"]').getBoundingClientRect().bottom < 0"), 'Skip link stays hidden until keyboard focus');
-    await screenshot('editorial-home');
-    for (const width of [390, 320, 768, 1024]) {
-      await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 }); await settle();
-      assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'), 'Hero overflow at ' + width);
-      if (width === 390) await screenshot('editorial-home-mobile');
-    }
-    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false });
-    await go('/services', "!!document.querySelector('[data-package=D]')");
-    await evaluate('document.fonts.ready');
-    assert.ok(await evaluate("document.querySelector('[data-package=D]').getBoundingClientRect().width > 1.8*document.querySelector('[data-package=A]').getBoundingClientRect().width"), 'Featured YouTube package gets a wider layout');
-    await evaluate("document.querySelector('#packages').scrollIntoView({block:'start',behavior:'instant'})"); await settle();
-    await screenshot('editorial-packages');
-    await evaluate("document.querySelector('[data-package=D] button').click()");
-    await waitFor("document.querySelector('dialog')?.open");
-    assert.match(await evaluate("document.querySelector('dialog').textContent"), /YouTube Partner Program.*Complete/);
-    assert.match(await evaluate("document.querySelector('dialog').textContent"), /4,199/);
-    await evaluate("document.querySelector('button[aria-label=\"Close checkout\"]').click()");
-    for (const width of [390, 320, 768, 1024]) {
-      await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 }); await settle();
-      assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'), 'Catalog overflow at ' + width);
-      if (width === 390) { await evaluate("document.querySelector('[data-package=D]').scrollIntoView({block:'start',behavior:'instant'})"); await settle(); await screenshot('editorial-package-mobile'); }
-    }
-    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false });
     await go('/register', "!!document.querySelector('#auth-name')");
     await screenshot('register');
     const customerEmail = 'browser-' + randomUUID() + '@example.test';

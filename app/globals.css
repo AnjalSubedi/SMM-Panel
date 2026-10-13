@@ -2,7 +2,6 @@
 
 @theme inline {
   --font-sans: var(--font-geist), Arial, Helvetica, sans-serif;
-  --font-display: var(--font-space-grotesk), Arial, Helvetica, sans-serif;
   --font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -12,28 +11,31 @@ body { margin: 0; min-width: 320px; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled), a { cursor: pointer; }
 
-@layer base {
-  h1, h2, h3 { font-family: var(--font-space-grotesk), Arial, Helvetica, sans-serif; letter-spacing: -0.035em; }
-}
-
 @layer components {
   .page-container { @apply mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12; }
-  .section-space { @apply py-28 sm:py-40; }
-  .section-heading { @apply text-3xl font-bold leading-tight tracking-[-0.035em] text-zinc-900 sm:text-4xl; }
+  .section-space { @apply py-14 sm:py-20; }
+  .section-heading { @apply text-3xl font-bold leading-tight tracking-[-0.035em] text-slate-900 sm:text-4xl; }
   .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.15em] text-blue-600; }
-  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-md border border-blue-600 bg-blue-600 font-semibold text-white transition-colors hover:border-blue-700 hover:bg-blue-700; }
-  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50; }
-  .quantity-button { @apply flex size-12 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40; }
-  .field-input { @apply mt-2 block min-h-11 w-full rounded-md border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-blue-600; }
+  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 font-semibold text-white shadow-sm transition-colors hover:border-blue-700 hover:bg-blue-700; }
+  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50; }
+  .quantity-button { @apply flex size-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40; }
+  .field-input { @apply mt-2 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600; }
 }
 
-.hero-surface { background: #ffffff; }
+.hero-surface { background: linear-gradient(110deg, #ffffff 30%, #f0f6ff 100%); }
+.reveal { animation: reveal 550ms cubic-bezier(.2,.8,.2,1) both; }
+.reveal:nth-child(2) { animation-delay: 60ms; }
+.reveal:nth-child(3) { animation-delay: 120ms; }
+.reveal:nth-child(4) { animation-delay: 180ms; }
+@keyframes reveal { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+.status-dot { animation: status-pulse 2.5s ease-in-out infinite; }
+@keyframes status-pulse { 50% { opacity: .4; } }
 
 .quantity-range { height: 5px; appearance: none; border-radius: 4px; background: #dbeafe; accent-color: #2563eb; cursor: pointer; }
-.quantity-range::-webkit-slider-thumb { width: 18px; height: 18px; appearance: none; border: 2px solid #2563eb; border-radius: 50%; background: #fff; }
-.quantity-range::-moz-range-thumb { width: 13px; height: 13px; border: 2px solid #2563eb; border-radius: 50%; background: #fff; }
+.quantity-range::-webkit-slider-thumb { width: 18px; height: 18px; appearance: none; border: 3px solid #fff; border-radius: 50%; background: #2563eb; box-shadow: 0 0 0 1px #2563eb; }
+.quantity-range::-moz-range-thumb { width: 13px; height: 13px; border: 3px solid #fff; border-radius: 50%; background: #2563eb; box-shadow: 0 0 0 1px #2563eb; }
 .service-scroll { scrollbar-color: #cbd5e1 transparent; scrollbar-width: thin; overscroll-behavior: contain; }
-.checkout-dialog::backdrop { background: rgb(9 9 11 / 45%); }
+.checkout-dialog::backdrop { background: rgb(15 23 42 / 35%); backdrop-filter: blur(6px); }
 :where(a, button, input, select, textarea):focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 ::selection { color: #1e3a8a; background: #bfdbfe; }
 @media (prefers-reduced-motion: reduce) {
