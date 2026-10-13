@@ -12,9 +12,9 @@ export async function currentUser(requestHeaders?: Headers): Promise<AccountUser
   return { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified, isAdmin: await isAdminId(session.user.id) };
 }
 
-export async function requireUserPage(admin = false): Promise<AccountUser> {
+export async function requireUserPage(admin = false, next = admin ? "/admin" : "/account"): Promise<AccountUser> {
   const user = await currentUser();
-  if (!user) redirect("/login?next=" + (admin ? "/admin" : "/account"));
+  if (!user) redirect("/login?next=" + encodeURIComponent(next));
   if (admin && !user.isAdmin) redirect("/account?notice=admin-only");
   return user;
 }

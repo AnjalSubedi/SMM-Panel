@@ -12,6 +12,8 @@ async function request(path, body, useCookie = true, origin = base) {
 async function main() {
   assert.equal((await request('/api/account', null, false)).response.status, 401);
   assert.equal((await request('/api/admin', null, false)).response.status, 401);
+  assert.equal((await request('/api/account/notifications', null, false)).response.status, 401);
+  assert.equal((await request('/api/account/notifications', { ids: ['a'.repeat(64)] }, false)).response.status, 401);
   assert.equal((await request('/api/account/orders/delivery', { orderId: crypto.randomUUID(), deliveryWindowMinutes: 60 }, false)).response.status, 401);
   const email = 'qa-' + crypto.randomUUID() + '@example.test';
   const password = crypto.randomUUID() + '-Safe-Test';
@@ -25,6 +27,11 @@ async function main() {
   assert.equal(account.data.user.isAdmin, false);
   assert.equal(account.data.balancePaisa, 0);
   assert.equal((await request('/api/admin')).response.status, 403);
+  const home = await request('/');
+  assert.equal(home.response.status, 307); assert.equal(home.response.headers.get('location'), '/account');
+  assert.equal((await request('/services')).response.status, 200);
+  assert.equal((await request('/api/account/notifications', { ids: ['a'.repeat(64)] }, true, 'https://evil.invalid')).response.status, 403);
+  assert.equal((await request('/api/account/notifications', { ids: ['invalid'] })).response.status, 400);
   const topup = await request('/api/account/topups', { amount: 500, reference: 'QA-' + crypto.randomUUID(), requestKey: crypto.randomUUID() });
   assert.equal(topup.response.status, 201, JSON.stringify(topup.data));
   assert.equal((await request('/api/account')).data.balancePaisa, 0);

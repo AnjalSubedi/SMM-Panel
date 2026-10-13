@@ -17,7 +17,7 @@ npm.cmd install
 npm.cmd run db:migrate
 ```
 
-The migration creates Better Auth tables and applies `migrations/001-commerce.sql`. A PostgreSQL advisory lock serializes setup across processes. Setup is additive and repeatable. Schema migrations are explicit and are never run during normal customer requests.
+The migration creates Better Auth tables and applies `migrations/001-commerce.sql` and `migrations/002-notifications.sql`. A PostgreSQL advisory lock serializes setup across processes. Setup is additive and repeatable. Schema migrations are explicit and are never run during normal customer requests.
 
 ## Preserve existing local accounts and orders
 

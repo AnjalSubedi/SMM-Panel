@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
+import AccountProvider from "../components/AccountProvider";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import "./globals.css";
@@ -16,5 +17,5 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   // Browser extensions may inject attributes on body before React hydrates.
   // Keep the exception on body only; application components still report mismatches.
-  return <html lang="en" className={geist.variable + " " + geistMono.variable}><body suppressHydrationWarning className="bg-[#FAFAFA] font-sans text-slate-900 antialiased"><a href="#main-content" className="fixed left-4 top-3 z-[60] -translate-y-24 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white focus:translate-y-0">Skip to content</a><Header /><main id="main-content" tabIndex={-1}>{children}</main><Footer /></body></html>;
+  return <html lang="en" className={geist.variable + " " + geistMono.variable}><body suppressHydrationWarning className="bg-[#FAFAFA] font-sans text-slate-900 antialiased"><a href="#main-content" className="fixed left-4 top-3 z-[60] -translate-y-24 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white focus:translate-y-0">Skip to content</a><AccountProvider><Header /><main id="main-content" tabIndex={-1}>{children}</main><Footer /></AccountProvider></body></html>;
 }

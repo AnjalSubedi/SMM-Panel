@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Brand from "./Brand";
-import { site } from "../config/site";
+import { supportUrl } from "../config/site";
 
 export default function Footer() {
   const [status, setStatus] = useState<"checking" | "online" | "offline">("checking");
@@ -23,7 +23,7 @@ export default function Footer() {
         <div className="flex flex-col justify-between gap-8 md:flex-row">
           <div><Brand /><p className="mt-4 max-w-sm text-sm leading-6 text-slate-600">Built for Nepal&apos;s next generation of creators, independent businesses, and digital brands.</p></div>
           <nav aria-label="Footer navigation" className="flex flex-wrap items-start gap-6 text-sm font-medium text-slate-600">
-            <a href="#calculator" className="hover:text-blue-600">Services</a><a href="#packages" className="hover:text-blue-600">Packages</a><a href="#web-development" className="hover:text-blue-600">Web development</a><a href={site.messengerUrl} className="hover:text-blue-600">Contact</a>
+            <a href="/services#calculator" className="hover:text-blue-600">Services</a><a href="/services#packages" className="hover:text-blue-600">Packages</a><a href="/services#web-development" className="hover:text-blue-600">Web development</a><a href={supportUrl} className="hover:text-blue-600">Contact</a>
           </nav>
         </div>
         <div className="mt-9 flex flex-col justify-between gap-4 border-t border-slate-200 pt-6 text-xs text-slate-500 sm:flex-row">

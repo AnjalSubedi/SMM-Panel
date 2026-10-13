@@ -9,7 +9,7 @@ import { authClient } from "../lib/auth-client";
 import PaymentQr from "./PaymentQr";
 
 const draftKey = "dmnp-checkout-draft";
-const loginReturn = encodeURIComponent("/?resumeOrder=1#calculator");
+const loginReturn = encodeURIComponent("/services?resumeOrder=1#calculator");
 
 export default function CheckoutModal({ item, onDismiss }: { item: CatalogItem; onDismiss: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);

@@ -153,3 +153,11 @@ The plan uses whole, equal batches, each at least the verified service minimum, 
 Provider dispatch remains manual. Admin orders display Suvakrio's per-run quantity, runs, interval and service reference. Quantity must be per run: entering the full order quantity alongside runs would multiply delivery and provider charges. Admins must confirm the configured schedule before changing a timed order's delivery status. Verify the exact provider variant and drip-feed support before dispatch. The selected timeframe starts with the first batch dispatch; it is not a guaranteed completion deadline.
 
 Explicit PostgreSQL migrations add delivery columns idempotently and preserve existing orders, statuses and amounts. Tests use disposable PostgreSQL databases and never call the provider API.
+
+## Signed-in navigation and notifications
+
+Signed-in visits to the root URL redirect to /account. The public /services page keeps the calculator, bundles and saved-checkout return flow available to every user. The header avatar menu links to orders, wallet funding, payment history, notifications, profile settings and WhatsApp support. Admin access appears only for authorized accounts; the server continues to enforce it. Sign-out lives in the profile menu.
+
+Notification updates are derived from each account's latest 50 orders and 50 wallet deposits. Payment review, delivery timing, processing and completion changes produce new unread updates. The appNotificationRead table stores read status per user across devices. Viewing updates does not mark them as read automatically; use the individual or bulk read controls. There are no provider calls, email sends or browser push notifications involved. Normal requests require migration 002 to have been applied with npm run db:migrate.
+
+Profile settings can update the display name through Better Auth. Sign-in email remains read-only; password recovery is offered only when email delivery is configured.

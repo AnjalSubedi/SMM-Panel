@@ -43,6 +43,21 @@ async function main() {
     await waitFor("location.pathname === '/account' && document.body.textContent.includes('Welcome, Browser.')");
     await waitFor("!!document.querySelector('header') && !document.querySelector('header .animate-pulse')");
     await settle();
+    await go('/', "location.pathname === '/account' && document.body.textContent.includes('Welcome, Browser.')");
+    assert.equal(await evaluate("[...document.querySelectorAll('main button')].some(button=>button.textContent.trim()==='Sign out')"), false, 'Sign out lives only in the profile menu');
+    await evaluate("document.querySelector('button[aria-haspopup=menu]').click()");
+    await waitFor("!!document.querySelector('[role=menu]')");
+    assert.match(await evaluate("document.querySelector('[role=menu]').textContent"), /My orders.*Add funds.*Payment history.*Notifications.*Profile settings/);
+    assert.equal(await evaluate("[...document.querySelectorAll('[role=menuitem]')].some(item=>item.textContent==='Admin panel')"), false);
+    await screenshot('profile-menu');
+    await evaluate("document.querySelector('[role=menu]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    await waitFor("!document.querySelector('[role=menu]')");
+    assert.equal(await evaluate("document.activeElement===document.querySelector('button[aria-haspopup=menu]')"), true, 'Escape returns focus to profile trigger');
+    await go('/account/settings', "!!document.querySelector('#profile-name')");
+    await set('#profile-name', 'Browser Updated'); await click('Save changes');
+    await waitFor("document.body.textContent.includes('Profile updated.')");
+    await waitFor("document.querySelector('button[aria-haspopup=menu]').getAttribute('aria-label').includes('Browser Updated')");
+    await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
     await screenshot('account');
     const reference = ('BROWSER-DEPOSIT-' + randomUUID()).toUpperCase();
     await set('#deposit-reference', reference);
@@ -50,8 +65,18 @@ async function main() {
     await waitFor("document.body.textContent.includes('Deposit submitted for review')");
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 0);
     assert.equal(await evaluate("fetch('/api/admin').then(r=>r.status)"), 403);
+    await go('/account/notifications', "document.body.textContent.includes('Wallet deposit under review')");
+    await waitFor("document.body.textContent.includes('1 unread')");
+    await screenshot('notifications-unread');
+    await click('Mark all as read');
+    await waitFor("!document.body.textContent.includes('1 unread')");
+    await go('/account/notifications', "document.body.textContent.includes('Wallet deposit under review')");
+    assert.equal(await evaluate("document.querySelector('a[aria-label^=Notifications]').getAttribute('aria-label')"), 'Notifications', 'Read badge remains cleared after navigation');
+    await click('Unread'); await waitFor("document.body.textContent.includes('all caught up')");
+    await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
 
-    await go('/#calculator', "!!document.querySelector('#service-platform')");
+
+    await go('/services#calculator', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('You need')");
     assert.equal(await evaluate("document.querySelector('dialog form button:not([type])').disabled"), true);
@@ -101,7 +126,7 @@ async function main() {
     await click('Confirm gradual delivery');
     await waitFor(`!document.querySelector('[data-delivery-order="${directId}"]') && document.body.textContent.includes('Spread over 1 hour')`);
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 50000, 'Choosing a timeframe does not charge the wallet');
-    await go('/#calculator', "!!document.querySelector('#service-platform')");
+    await go('/services#calculator', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('NPR 500')");
     await set('#public-url-0', 'https://facebook.com/browser-wallet');
@@ -114,10 +139,10 @@ async function main() {
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 31375, 'Default choice also never debits again');
 
 
-    await go('/account', "document.body.textContent.includes('Welcome, Browser.')"); await click('Sign out');
+    await go('/account', "document.body.textContent.includes('Welcome, Browser.')"); await evaluate("document.querySelector('button[aria-haspopup=menu]').click()"); await waitFor("!!document.querySelector('[role=menu]')"); await click('Sign out');
     await waitFor("location.pathname === '/login' && !!document.querySelector('#auth-email')");
     await waitFor("!document.querySelector('header .animate-pulse')");
-    await go('/#calculator', "!!document.querySelector('#service-platform')");
+    await go('/services#calculator', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet'); await set('#public-url-0', 'https://facebook.com/saved-draft');
     await evaluate("[...document.querySelectorAll('dialog a')].find(a=>a.getAttribute('href').startsWith('/login?')).click()");
     await waitFor("location.pathname === '/login' && !!document.querySelector('#auth-email')");
@@ -125,7 +150,7 @@ async function main() {
     await screenshot('login');
     await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
     await evaluate("document.querySelector('form button:not([type])').click()");
-    await waitFor("location.pathname === '/' && document.querySelector('dialog')?.open");
+    await waitFor("location.pathname === '/services' && document.querySelector('dialog')?.open");
     assert.equal(await evaluate("document.querySelector('#public-url-0').value"), 'https://facebook.com/saved-draft');
     assert.match(await evaluate("document.querySelector('dialog').textContent"), /186.25/);
     assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');
@@ -134,6 +159,11 @@ async function main() {
     for (const width of [390, 320, 768]) {
       await call('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true }); await settle();
       assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'), 'Account overflow at ' + width);
+      await evaluate("document.querySelector('button[aria-haspopup=menu]').click()");
+      await waitFor("!!document.querySelector('[role=menu]')");
+      assert.ok(await evaluate("(()=>{const rect=document.querySelector('[role=menu]').getBoundingClientRect();return rect.left>=0&&rect.right<=innerWidth})()"), 'Profile menu fits at ' + width);
+      if (width === 390) await screenshot('profile-menu-mobile');
+      await evaluate("document.querySelector('button[aria-haspopup=menu]').click()");
       if (width === 390) await screenshot('account-mobile');
     }
     const adminAgain = await browserPost('/api/auth/sign-in/email', { email: ownerEmail, password: ownerPassword });

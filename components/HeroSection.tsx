@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUpRight, Check, CircleCheck, LockKeyhole, MessageCircle, ShieldCheck } from "lucide-react";
-import { site } from "../config/site";
+import { supportUrl } from "../config/site";
 import { formatPrice, type CatalogItem } from "../lib/catalog";
 
 export default function HeroSection({ preview }: { preview: CatalogItem }) {
@@ -12,7 +12,7 @@ export default function HeroSection({ preview }: { preview: CatalogItem }) {
           <p className="reveal mt-6 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">Audience growth, watch time, and monetization services for Nepali creators. Pay directly with eSewa or use your account wallet. No social passwords required.</p>
           <div className="reveal mt-8 flex flex-col gap-3 sm:flex-row">
             <a href="#calculator" className="button-primary px-5 py-3.5 text-sm">Explore Growth Catalog<ArrowRight size={17} aria-hidden="true" /></a>
-            <a href={site.messengerUrl} className="button-secondary px-5 py-3.5 text-sm"><MessageCircle size={17} aria-hidden="true" />Chat on Messenger</a>
+            <a href={supportUrl} className="button-secondary px-5 py-3.5 text-sm"><MessageCircle size={17} aria-hidden="true" />Chat on WhatsApp</a>
           </div>
           <dl className="mt-9 grid grid-cols-3 divide-x divide-slate-200 border-t border-slate-200 pt-6">
             <div className="pr-3"><dt className="text-[10px] text-slate-500 sm:text-xs">Social passwords</dt><dd className="mt-1.5 font-mono text-lg font-bold text-slate-900">0%</dd></div>

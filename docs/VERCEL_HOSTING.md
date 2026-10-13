@@ -43,7 +43,7 @@ Do not manually upload the whole folder through GitHub's browser file uploader. 
 1. In Vercel, choose Add New > Project.
 2. Connect GitHub and grant access to the specific private repository.
 3. Import AnjalSubedi/SMM-Panel.
-4. Use Framework Preset: Next.js, Root Directory: project root, Build Command: npm run db:migrate && npm run build, and the default Next.js output settings.
+4. Use Framework Preset: Next.js, Root Directory: project root, Build Command: npm run db:migrate && npm run build (also enforced by the committed vercel.json), and the default Next.js output settings.
 5. Choose a supported Node.js version compatible with the completed application; Node 22.x matches the current project runtime baseline.
 6. Add the production environment variables before the first complete deployment.
 
