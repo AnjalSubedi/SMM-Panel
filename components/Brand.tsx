@@ -22,11 +22,11 @@ export default function Brand() {
         />
       </svg>
       <span className="block">
-        <span className="block text-[15px] font-extrabold leading-[1.08] tracking-[-0.045em] text-slate-900 sm:text-[21px]">
+        <span className="block font-display text-[15px] font-bold leading-[1.08] tracking-[-0.045em] text-zinc-900 sm:text-[21px]">
           <span className="block sm:inline">Digital </span>
           <span>Marketing <span className="text-blue-600">NP</span></span>
         </span>
-        <span className="mt-1.5 hidden text-[8px] font-semibold uppercase tracking-[0.16em] text-slate-500 min-[400px]:block sm:text-[9px]">
+        <span className="mt-1.5 hidden text-[8px] font-semibold uppercase tracking-[0.16em] text-zinc-500 min-[400px]:block sm:text-[9px]">
           Social growth &amp; monetization
         </span>
       </span>
