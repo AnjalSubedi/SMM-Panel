@@ -13,6 +13,9 @@ const config: NextConfig = {
     { key: "Referrer-Policy", value: "no-referrer" },
     { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
     ...(!development ? [{ key: "Strict-Transport-Security", value: "max-age=31536000" }] : []),
-  ] }]; },
+  ] },
+    { source: "/api/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },
+    ...(process.env.VERCEL_ENV === "preview" ? [{ source: "/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] }] : []),
+  ]; },
 };
 export default config;
