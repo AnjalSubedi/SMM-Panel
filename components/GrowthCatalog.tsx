@@ -36,7 +36,18 @@ function ResumeCheckout({ services, bundles, dashboard, onRestore }: { services:
   return null;
 }
 
-export default function GrowthCatalog({ services, bundles = noBundles, dashboard = false, showPackages = true, initialPlatform, onOrderPlaced }: { services: CatalogItem[]; bundles?: readonly CatalogItem[]; dashboard?: boolean; showPackages?: boolean; initialPlatform?: string; onOrderPlaced?: () => Promise<void> }) {
+export default function GrowthCatalog({ services: initialServices, bundles: initialBundles = noBundles, dashboard = false, showPackages = true, initialPlatform, onOrderPlaced }: { services: CatalogItem[]; bundles?: readonly CatalogItem[]; dashboard?: boolean; showPackages?: boolean; initialPlatform?: string; onOrderPlaced?: () => Promise<void> }) {
+  const [services, setServices] = useState(initialServices);
+  const [bundles, setBundles] = useState(initialBundles);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/services", { signal: controller.signal, cache: "no-store" }).then(async response => {
+      if (!response.ok) return; const catalog = await response.json();
+      if (Array.isArray(catalog.services)) setServices(catalog.services);
+      if (initialBundles.length && Array.isArray(catalog.packages)) setBundles(catalog.packages);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [initialBundles.length]);
   const [order, setOrder] = useState<CatalogItem | null>(null);
   return <>
     <Suspense fallback={null}><ResumeCheckout services={services} bundles={bundles} dashboard={dashboard} onRestore={setOrder} /></Suspense>

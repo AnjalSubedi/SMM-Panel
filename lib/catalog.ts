@@ -1,5 +1,6 @@
 import { formatPrice, formatQuantity } from "./catalogFormat";
 import { COMBO_PACKAGES } from "../config/catalogData";
+import { automaticRetailCatalog, savedProviderCatalog } from "./fulfillmentCatalog";
 import { bundleCopy } from "./customerCopy";
 
 export type CatalogItem = {
@@ -10,6 +11,7 @@ export type CatalogItem = {
   providerServiceId?: number;
   quantityLimitsVerified?: boolean;
   quantityPerProviderUnit?: number;
+  automaticDeliveryAvailable?: boolean;
   name: string;
   price: number;
   quantity?: string;
@@ -27,6 +29,7 @@ export type CatalogItem = {
 };
 
 export type ServiceCatalogResponse = {
+  packages?: CatalogItem[];
   services: CatalogItem[];
   platforms: string[];
   markupPercent: number;
@@ -36,7 +39,7 @@ export type ServiceCatalogResponse = {
 
 export { platformOrder } from "./catalogFormat";
 
-export const packages: readonly CatalogItem[] = COMBO_PACKAGES.map((bundle, index) => ({
+const originalPackages: readonly CatalogItem[] = COMBO_PACKAGES.map((bundle, index) => ({
   id: bundle.id,
   kind: "package" as const,
   packageCode: String.fromCharCode(65 + index),
@@ -47,6 +50,8 @@ export const packages: readonly CatalogItem[] = COMBO_PACKAGES.map((bundle, inde
   apiSteps: bundle.apiSteps,
   inclusions: bundleCopy[bundle.id]?.inclusions ?? bundle.features,
 }));
+
+export const packages: readonly CatalogItem[] = process.env.FULFILLMENT_MODE === "manual" ? originalPackages : automaticRetailCatalog(savedProviderCatalog).packages;
 
 export function inferPlatform(category: string, name: string): string {
   const value = `${category} ${name}`.toLowerCase();

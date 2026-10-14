@@ -1,0 +1,80 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
+const { Pool } = require('pg');
+const base = 'http://localhost:3002';
+async function main() {
+  const database = new URL(process.env.QA_DATABASE_URL || '');
+  assert.equal(database.hostname, '127.0.0.1'); assert.equal(database.username, 'dmnp_test');
+  assert.equal(process.env.SUVAKRIO_API_KEY, "isolated-qa-provider-key");
+  const db = new Pool({ connectionString: database.toString(), max: 1 });
+  const target = await (await fetch('http://localhost:9223/json/new?about:blank', { method: 'PUT' })).json();
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
+  let id = 0; const pending = new Map(); const exceptions = [];
+  socket.addEventListener('message', event => {
+    const message = JSON.parse(event.data);
+    if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.text);
+    if (message.id && pending.has(message.id)) { const task = pending.get(message.id); pending.delete(message.id); clearTimeout(task.timer); message.error ? task.reject(message.error) : task.resolve(message.result); }
+  });
+  const call = (method, params = {}) => new Promise((resolve, reject) => { const n = ++id; const timer = setTimeout(() => reject(new Error('CDP timeout: ' + method)), 20000); pending.set(n, { resolve, reject, timer }); socket.send(JSON.stringify({ id: n, method, params })); });
+  const evaluate = async expression => { const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, allowUnsafeEvalBlockedByCSP: false }); if (result.exceptionDetails) throw new Error((result.exceptionDetails.exception?.description || result.exceptionDetails.text) + " Expression: " + expression); return result.result.value; };
+  const waitFor = async expression => { for (let i = 0; i < 150; i++) { if (await evaluate('Boolean(document.body) && (' + expression + ')')) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error('Not ready: ' + expression + ' ' + await evaluate('JSON.stringify({heading:document.querySelector("h1")?.textContent,alerts:[...document.querySelectorAll("[role=alert]")].map(e=>e.textContent),buttons:[...document.querySelectorAll("form button")].map(e=>({text:e.textContent,disabled:e.disabled})),valid:document.querySelector("form")?.checkValidity()})'));  };
+  const set = async (selector, value) => { await evaluate('(()=>{const el=document.querySelector(' + JSON.stringify(selector) + ');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,' + JSON.stringify(value) + ');el.dispatchEvent(new Event("input",{bubbles:true}));})()'); await new Promise(resolve => setTimeout(resolve, 100)); };
+  const submit = async () => { await evaluate('document.querySelector("form button:not([type])").click()'); };
+  const post = (path, body) => evaluate('fetch(' + JSON.stringify(path) + ',{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(' + JSON.stringify(body) + ')}).then(async r=>({status:r.status,data:await r.json()}))');
+  const screenshot = async name => { await fs.mkdir('.qa', { recursive: true }); const r = await call('Page.captureScreenshot', { format: 'png' }); await fs.writeFile('.qa/' + name + '.png', Buffer.from(r.data, 'base64')); };
+  const email='fulfillment-'+randomUUID()+'@example.test',password='Isolated-Fulfillment-Password-2026!';
+  const {seedQaUser}=require('./qa-user.cjs');await seedQaUser('Delivery Customer',email,password);
+  const user=(await db.query('SELECT id FROM "user" WHERE email=$1',[email])).rows[0];
+  await db.query('INSERT INTO "appWallet"("userId","balancePaisa") VALUES($1,100000)',[user.id]);
+  const select=async(selector,value)=>{await evaluate('(()=>{const el=document.querySelector('+JSON.stringify(selector)+');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,"value").set.call(el,'+JSON.stringify(value)+');el.dispatchEvent(new Event("change",{bubbles:true}));})()');await new Promise(done=>setTimeout(done,200));};
+  const waitDb=async(sql,values,expected)=>{for(let i=0;i<100;i++){const rows=(await db.query(sql,values)).rows;if(rows[0]?.status===expected)return rows[0];await new Promise(done=>setTimeout(done,100));}throw new Error('Background delivery did not reach '+expected);};
+  try {
+    await call('Runtime.enable');await call('Page.enable');await call('Network.enable');await call('Network.clearBrowserCookies');
+    await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await call('Page.navigate',{url:base+'/login'});await waitFor('!!document.querySelector("#auth-email") && !document.querySelector("header .animate-pulse")');await new Promise(done=>setTimeout(done,300));
+    await set('#auth-email',email);await set('#auth-password',password);await submit();
+    await waitFor('location.pathname === "/account" && !!document.querySelector("#service-platform")');
+    const catalog=await evaluate('fetch("/api/services").then(r=>r.json())');assert.equal(catalog.source,'live');assert.equal(catalog.markupPercent,75);assert.equal(catalog.services.length,58);
+    const service=catalog.services.find(s=>s.id==='IG_06');assert.equal(service.automaticDeliveryAvailable,true);
+    await select('#service-platform','Instagram');
+    const category=await evaluate('[...document.querySelector("#service-category").options].find(o=>/Views/i.test(o.textContent)).value');
+    await select('#service-category',category);await select('#service-boost','IG_06');await set('#quantity','1000');
+    await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Review your order")).click()');
+    await waitFor('!!document.querySelector("dialog[open] #public-url-0")');await set('#public-url-0','https://instagram.com/reel/test');
+    await evaluate('document.querySelector("#payment-tab-wallet").click()');await evaluate('document.querySelector("#order-terms-acceptance").click()');
+    await waitFor('!![...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Review wallet payment") && !b.disabled)');
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Review wallet payment")).click()');
+    await waitFor('!![...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet") && !b.disabled)');
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet") && !b.disabled).click()');
+    await waitFor('document.querySelector("dialog")?.textContent.includes("Paid from your wallet")');
+    const order=(await db.query('SELECT id,status,"amountPaisa" FROM "appOrder" WHERE "userId"=$1',[user.id])).rows[0];assert.ok(order);
+    await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[order.id],'submitted');
+    assert.equal((await db.query('SELECT COUNT(*) AS count FROM "appLedger" WHERE "userId"=$1',[user.id])).rows[0].count,'1');
+    await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
+    await waitFor('!![...document.querySelectorAll("button")].find(b=>b.textContent.includes("Refresh account") && !b.disabled)');
+    await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Refresh account")).click()');
+    await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[order.id],'completed');
+    await new Promise(done=>setTimeout(done,300));await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Refresh account")).click()');
+    await waitFor('document.querySelector("#order-'+order.id+'")?.textContent.includes("Completed") && document.querySelector("#order-'+order.id+'")?.textContent.includes("Automatic delivery")');
+    await evaluate('document.getElementById("order-'+order.id+'").scrollIntoView({block:"center"})');
+    await screenshot('automatic-delivery-desktop');
+    await call('Emulation.setDeviceMetricsOverride',{width:375,height:1000,deviceScaleFactor:1,mobile:true});assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true);await screenshot('automatic-delivery-mobile');
+    const providerAdds=(await fs.readFile(process.env.QA_PROVIDER_FILE,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(providerAdds.length,1);assert.equal(providerAdds[0].service,'1688');assert.equal(providerAdds[0].quantity,'1000');
+    assert.equal((await evaluate('fetch("/api/cron/fulfillment").then(r=>r.status)')),401);
+    assert.equal((await post('/api/admin/fulfillment',{orderId:order.id,jobId:randomUUID(),providerOrderId:'10001'})).status,403);
+    // Direct payments never dispatch without approval; admins submit automatically after receipt review.
+    const guest=await post('/api/orders',{itemId:'IG_06',quantity:1000,expectedAmountPaisa:Number(order.amountPaisa),links:[{platform:'Instagram',url:'https://instagram.com/reel/test-guest'}],method:'direct',requestKey:randomUUID(),reference:'QA-'+randomUUID(),termsAccepted:true,termsVersion:'2026-10-14',termsLanguage:'en'});
+    assert.equal(guest.status,201,JSON.stringify(guest.data));assert.equal(guest.data.status,'awaiting_payment');
+    const payment=(await db.query('SELECT id FROM "appPayment" WHERE "orderId"=$1',[guest.data.id])).rows[0];
+    await post('/api/auth/sign-out',{});await seedQaUser('QA Owner','qa-owner@example.test',password);assert.equal((await post('/api/auth/sign-in/email',{email:'qa-owner@example.test',password})).status,200);
+    const approval=await post('/api/admin/payments',{paymentId:payment.id,decision:'approve',confirmedReceived:true,note:'Verified mocked receipt amount and reference'});assert.equal(approval.status,200);
+    await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[guest.data.id],'submitted');
+    await call('Page.navigate',{url:base+'/admin'});await waitFor('document.body.textContent.includes("Operations dashboard") && !document.querySelector("header .animate-pulse")');
+    await evaluate('[...document.querySelectorAll("button[aria-pressed]")].find(b=>b.textContent.trim()==="orders").click()');
+    await waitFor('document.body.textContent.includes("Automatic delivery")');assert.equal(await evaluate('document.body.textContent.includes("Mark completed")'),false);await screenshot('automatic-delivery-admin');
+    assert.deepEqual(exceptions,[]);console.log('Production automatic delivery browser checks passed: live markup pricing, wallet checkout, after-response provider submission, status updates, mobile layout, protected cron, admin payment approval, and removal of manual completion controls. All provider calls mocked.');
+  } finally {await db.end();socket.close();await fetch('http://localhost:9223/json/close/'+target.id);}
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

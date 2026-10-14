@@ -22,7 +22,7 @@ The Vercel build already runs npm run db:migrate before npm run build. Locally, 
 
 ## Policy maintenance
 
-Increment TERMS_VERSION whenever wording changes, and update the English and Nepali text together. Existing records preserve the accepted text even after a policy update. Do not restore blanket delivery deadlines or automatic-refill promises unless they match the actual service. Cancellation after provider dispatch may be unavailable; failed or undelivered services receive support review, with applicable consumer rights preserved. No automatic refund or provider-fulfillment feature is introduced by this change.
+Increment TERMS_VERSION whenever wording changes, and update the English and Nepali text together. Existing records preserve the accepted text even after a policy update. Do not restore blanket delivery deadlines or automatic-refill promises unless they match the actual service. Cancellation after provider dispatch may be unavailable; failed or undelivered services receive support review, with applicable consumer rights preserved. Automatic fulfillment credits account wallets once for definitively rejected, cancelled or partially undelivered orders. Guest refunds still require support. Follower drops and refill terms remain service-specific.
 
 ## Validation
 

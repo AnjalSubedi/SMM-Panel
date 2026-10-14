@@ -4,7 +4,8 @@ type ConfiguredService = { id: string; platform: string; name: string; rateNpr: 
 type ProviderService = { service: number; name: string; category: string; min: number; max: number };
 type QuantityMapping = { providerServiceId: number; quantityPerProviderUnit?: number; preserveFixedQuantity?: boolean };
 
-// These are equivalents for quantity limits, not automatic fulfillment mappings.
+// Normalize explicit provider equivalents for public quantity limits.
+// Automatic fulfillment applies additional type, input and cost validation.
 // Preserve storefront names, prices, retail caps and fixed-size products.
 export function buildConfiguredCatalog(configured: readonly ConfiguredService[], snapshot: readonly ProviderService[], mappings: Record<string, QuantityMapping>): CatalogItem[] {
   return configured.map((service) => {

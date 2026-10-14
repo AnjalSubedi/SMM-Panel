@@ -58,7 +58,7 @@ export default function ComboPackagesGrid({ packages, onOrder, onPrepareCheckout
                       <p className="mt-1 font-mono text-[28px] font-bold tracking-tight text-slate-950">{formatPrice(bundle.price)}</p>
                       <p className="mt-1 text-xs text-slate-600">One-time payment · No subscription</p>
                     </div>
-                    <button type="button" aria-haspopup="dialog" aria-label={`Choose package ${bundle.packageCode}: ${bundle.name}`} onPointerEnter={onPrepareCheckout} onFocus={onPrepareCheckout} onClick={() => onOrder(bundle)} className={`mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors ${highlighted ? "border border-blue-600 bg-blue-600 text-white hover:bg-blue-700" : "border border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50"}`}>Choose package<ArrowRight size={15} aria-hidden="true" /></button>
+                    <button type="button" disabled={bundle.automaticDeliveryAvailable === false} aria-haspopup="dialog" aria-label={`Choose package ${bundle.packageCode}: ${bundle.name}`} onPointerEnter={onPrepareCheckout} onFocus={onPrepareCheckout} onClick={() => onOrder(bundle)} className={`mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors ${highlighted ? "border border-blue-600 bg-blue-600 text-white hover:bg-blue-700" : "border border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50"}`}>{bundle.automaticDeliveryAvailable === false ? "Temporarily unavailable" : "Choose package"}<ArrowRight size={15} aria-hidden="true" /></button>
                   </div>
                 </div>
               </article>

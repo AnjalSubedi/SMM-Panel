@@ -123,11 +123,11 @@ The server reloads the configured service, validates its quantity and platform l
 
 Choose direct eSewa in checkout, enter the reference and the required public links, and submit. Account holders get the order in their history; guests supply an email and receive an order ID on screen. No wallet balance is debited. The order remains under payment review until approval.
 
-For multi-platform bundles, checkout asks for one public link per included platform. Guest orders are not linked to a later account merely because the email matches.
+For bundles, checkout asks for separate profile/page/channel and content links when the included services need different targets. Guest orders are not linked to a later account merely because the email matches.
 
 ### Delivery
 
-Paid orders enter the queue. The admin can record a provider reference, mark processing, and then mark completed. **Automatic Suvakrio dispatch is not connected**: the existing catalog's provider IDs must be verified before integrating live fulfillment. No request to a paid provider is sent by these tests or flows.
+Paid orders are submitted automatically using verified provider mappings. Add `SUVAKRIO_API_KEY` as a Secret in Vercel Production, keep the Suvakrio balance funded, and redeploy. Orders remain gated by verified payment and any customer timing choice. Durable database jobs prevent repeated submission; provider references and statuses appear in order history. Manual status changes are blocked for automatic orders, including while the emergency manual mode is enabled. Tests use a fake provider and never use the configured key.
 
 ## Storage and deployment
 
@@ -137,7 +137,7 @@ Run `npm run db:migrate` before serving a new database. On Vercel, use Build Com
 
 Existing SQLite data can be imported into an empty PostgreSQL database using `npm run db:import-sqlite -- .runtime/digitalmarketing.sqlite`. Stop the old app first. The importer opens the source read-only and checks counts and wallet/ledger reconciliation in a PostgreSQL transaction. Existing targets are never overwritten. Users must sign in again because active sessions and reset tokens are not copied. See [migration details](POSTGRESQL_MIGRATION.md).
 
-The catalog and its prices remain in the original, unmodified `config/catalogData.js`. Quantity limits use explicit equivalents in `config/serviceQuantityMappings.json` and the local public-page snapshot. Unmatched services retain configured limits. The storefront, catalog endpoint and checkout share those limits. Mappings do not enable automatic provider fulfillment or use the API key.
+The original 58-service definitions remain unmodified in `config/catalogData.js`. Available service and bundle prices are calculated from provider cost plus `SERVICE_MARKUP_PERCENT` (default 75), with integer-paisa rounding. Explicit equivalents in `config/serviceQuantityMappings.json` supply real provider IDs and quantities. The live catalog is cached for 60 seconds. Checkout verifies the displayed price before charging. Unmapped products and products requiring unsupported custom inputs are displayed as temporarily unavailable; they cannot accept payment.
 
 ## Verification
 
@@ -161,13 +161,13 @@ Google's external OAuth callback and real email delivery require credentials and
 
 ## Delivery timing after payment approval
 
-For eligible signed-in follower services, approving direct eSewa payment changes the order to `awaiting_delivery`. A successful wallet debit does the same immediately because those funds were already approved. The customer selects Default or a gradual 1-hour to 7-day window in My orders. The account page checks pending payments every 15 seconds while visible.
+For eligible signed-in follower services, approving direct eSewa payment changes the order to `awaiting_delivery`. A successful wallet debit does the same immediately because those funds were already approved. The customer selects Default or a gradual 1-hour to 7-day window in My orders. The account page checks pending payments and active delivery every 15 seconds while visible.
 
 `POST /api/account/orders/delivery` requires the order owner's session and a same-origin JSON request. It only accepts `orderId` and `deliveryWindowMinutes` (0 for Default). The server computes and stores the plan, moves the already-paid order to queued, and records an audit entry without another debit. Repeated identical requests are idempotent. Different changes after confirmation require support.
 
 The plan uses whole, equal batches, each at least the verified service minimum, with the first and final dispatch separated by the requested window. For 100 followers on a service with minimum 10, one hour can be 5 batches of 20 every 15 minutes. A service with minimum 100 cannot drip-feed a 100-unit order. Fixed packages, unmatched services, non-follower services and guest orders retain default delivery.
 
-Provider dispatch remains manual. Admin orders display Suvakrio's per-run quantity, runs, interval and service reference. Quantity must be per run: entering the full order quantity alongside runs would multiply delivery and provider charges. Admins must confirm the configured schedule before changing a timed order's delivery status. Verify the exact provider variant and drip-feed support before dispatch. The selected timeframe starts with the first batch dispatch; it is not a guaranteed completion deadline.
+Suvakrio receives the per-run quantity, runs and interval automatically. Its native drip-feed continues after the customer closes the browser. A provider that explicitly disables drip-feed rejects the timing choice before dispatch; the customer can choose default delivery. The selected timeframe starts with the first batch dispatch and is not a guaranteed completion deadline.
 
 Explicit PostgreSQL migrations add delivery columns idempotently and preserve existing orders, statuses and amounts. Tests use disposable PostgreSQL databases and never call the provider API.
 
@@ -178,3 +178,13 @@ Signed-in visits to the root URL redirect to /account. The public /services page
 Notification updates are derived from each account's latest 50 orders and 50 wallet deposits. Payment review, delivery timing, processing and completion changes produce new unread updates. The appNotificationRead table stores read status per user across devices. The header bell opens an anchored notification popup with All/Unread filters, the latest 10 matching updates, individual and bulk read controls, and a link to the complete notification page. Opening the popup does not mark updates as read. Selecting an update marks it as read and opens its related order or payment. The popup closes with Escape or an outside click and fits mobile viewports. There are no provider calls, email sends or browser push notifications involved. Normal requests require migration 002 to have been applied with npm run db:migrate.
 
 Profile settings can update the display name through Better Auth. Sign-in email remains read-only; password recovery is offered only when email delivery is configured.
+
+## Automatic fulfillment recovery
+
+Migration 006 adds durable jobs and a short-lived provider-catalog cache. Next.js after-response work submits paid orders immediately and refreshes statuses on account/admin visits. Jobs are recovered without another customer debit. A Vercel Hobby cron runs daily as a backup: set a random 32+ character `CRON_SECRET` in Production and redeploy. For reliable frequent recovery/status updates when there is no site traffic, configure an external scheduler or upgrade the cron frequency; the authenticated endpoint is `GET /api/cron/fulfillment` with `Authorization: Bearer <CRON_SECRET>`. Never expose this secret to browsers.
+
+Low provider balance retries safely after five minutes when a worker runs. Definitive rejection or cancellation refunds the account wallet once; partial delivery refunds the undelivered proportion. Guest direct-payment refunds require support because there is no account wallet or eSewa refund API.
+
+The provider has no documented add-order idempotency key. A timeout, invalid response, or interrupted submission therefore becomes `needs_attention`; it is never automatically submitted again. In the admin orders view, check Suvakrio and link the existing provider reference to resume status updates. These exceptional checks prevent duplicate provider charges. Do not create another provider order while acceptance is uncertain.
+
+Queued legacy orders with safe mappings, correct links and sufficient paid value can be adopted automatically. Previously manually processed orders are excluded. Unsupported legacy orders require a support check; their paid amounts are never silently increased.

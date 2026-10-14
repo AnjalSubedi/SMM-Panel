@@ -59,7 +59,7 @@ function QuantityConfigurator({ service, onOrder, compact = false }: { service: 
         <p aria-live="polite" aria-atomic="true" className={compact ? "mt-1 break-words font-mono text-2xl font-bold tracking-tight text-blue-600 sm:text-3xl" : "mt-1 font-mono text-3xl font-extrabold tracking-tight text-blue-600"}>{valid ? formatPrice(total) : "—"}</p>
         <p className="mt-2 text-[10px] text-slate-500">{formatQuantity(quantity)} units · Priced in NPR</p>
       </div>
-      <button type="button" disabled={!valid} aria-haspopup="dialog" onClick={() => onOrder(prepareServiceOrder({ ...service, category: getServiceCategory(service) }, quantity))} className="button-primary mt-4 w-full px-3 py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">Review your order<ArrowRight size={16} aria-hidden="true" /></button>
+      <button type="button" disabled={!valid || service.automaticDeliveryAvailable === false} aria-haspopup="dialog" onClick={() => onOrder(prepareServiceOrder({ ...service, category: getServiceCategory(service) }, quantity))} className="button-primary mt-4 w-full px-3 py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">{service.automaticDeliveryAvailable === false ? "Temporarily unavailable" : "Review your order"}<ArrowRight size={16} aria-hidden="true" /></button>
       <p className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-slate-500"><LockKeyhole size={11} aria-hidden="true" />No social media password needed.</p>
       </div>
     </div>

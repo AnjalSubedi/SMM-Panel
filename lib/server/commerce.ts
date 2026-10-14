@@ -1,3 +1,6 @@
+import { automationEnabled, liveRetailCatalog, providerServices } from "./suvakrio";
+import { saveFulfillmentJobs, attachFulfillment } from "./fulfillment";
+import { deliveryTargets, fulfillmentSteps } from "../fulfillmentCatalog";
 import { TERMS_VERSION, termsSnapshot } from "../terms";
 import { isPublicWebLink } from "../publicLinks";
 import "server-only";
@@ -13,7 +16,7 @@ import { requiredPlatforms } from "../checkout";
 import type { AccountData, AccountUser, AdminData, LedgerRecord, OrderRecord, PaymentRecord, PublicLink } from "../account-types";
 
 const referenceSchema = z.string().trim().min(6, "Enter the eSewa transaction reference (at least 6 characters).").max(64).regex(/^[a-zA-Z0-9-]+$/, "Transaction references can contain letters, numbers and hyphens.").transform((value) => value.toUpperCase());
-const linkSchema = z.object({ platform: z.string().min(1).max(40), url: z.string().trim().max(2048).url("Enter a valid public URL.").refine((value) => ["https:", "http:"].includes(new URL(value).protocol), "Use an https:// or http:// URL.") }).strict();
+const linkSchema = z.object({ target: z.string().max(100).optional(), platform: z.string().min(1).max(40), url: z.string().trim().max(2048).url("Enter a valid public URL.").refine((value) => ["https:", "http:"].includes(new URL(value).protocol), "Use an https:// or http:// URL.") }).strict();
 
 export const orderSchema = z.object({
   termsAccepted: z.literal(true, { error: "Please read and accept the terms before payment." }),
@@ -26,6 +29,7 @@ export const orderSchema = z.object({
   method: z.enum(["wallet", "direct"]),
   email: z.string().trim().email().max(254).optional(),
   reference: referenceSchema.optional(),
+  expectedAmountPaisa: z.number().int().positive().optional(),
   requestKey: z.string().uuid("Refresh the page and try again."),
 }).strict();
 export type OrderInput = z.infer<typeof orderSchema>;
@@ -71,19 +75,22 @@ async function wallet(userId: string, db: Database = getDb()) {
   return ((await one(db, "SELECT \"balancePaisa\" FROM \"appWallet\" WHERE \"userId\" = $1", [userId])) as { balancePaisa: number }).balancePaisa;
 }
 
-function quote(input: OrderInput): { item: CatalogItem; amountPaisa: number; quantity: number; links: PublicLink[] } {
-  const item = services.find((entry) => entry.id === input.itemId) || packages.find((entry) => entry.id === input.itemId);
+function quote(input: OrderInput, catalog: { services: readonly CatalogItem[]; packages: readonly CatalogItem[] } = { services, packages }): { item: CatalogItem; amountPaisa: number; quantity: number; links: PublicLink[] } {
+  const item = catalog.services.find((entry) => entry.id === input.itemId) || catalog.packages.find((entry) => entry.id === input.itemId);
   if (!item) throw new AppError("This service does not exist.");
   const quantity = item.kind === "package" ? 1 : input.quantity;
   if (item.kind === "package" && input.quantity !== 1) throw new AppError("Bundles must use a quantity of one.");
   if (item.kind === "service" && (quantity < (item.min ?? 1) || quantity > (item.max ?? 1))) throw new AppError("The selected quantity is outside this service's limits.");
   const amountPaisa = item.kind === "package" ? amountToPaisa(item.price) : Math.round(amountToPaisa(item.price) * quantity / (item.unitSize ?? 1));
   if (amountPaisa < 1) throw new AppError("The calculated amount is too small.");
-  const required = requiredPlatforms(item);
-  const supplied = new Map(input.links.map((entry) => [entry.platform, entry.url]));
+  const targets = automationEnabled() ? deliveryTargets(item) : requiredPlatforms(item).map(platform => ({ key: platform, platform }));
+  const required = targets.map(target => target.key);
+  const supplied = new Map(input.links.map((entry) => [entry.target ?? entry.platform, entry.url]));
   if (supplied.size !== input.links.length || required.length !== supplied.size || required.some((platform) => !supplied.has(platform))) throw new AppError("Provide exactly one public link for each platform in this order.");
-  if (input.links.some(link => !isPublicWebLink(link.url, link.platform))) throw new AppError("Use a public link from the selected platform, without login details, private addresses or custom ports.");
-  return { item, amountPaisa, quantity, links: required.map((platform) => ({ platform, url: supplied.get(platform)! })) };
+  if (targets.some(target => !isPublicWebLink(supplied.get(target.key)!, target.platform))) throw new AppError("Use a public link from the selected platform, without login details, private addresses or custom ports.");
+  if (automationEnabled() && item.automaticDeliveryAvailable === false) throw new AppError("This service is currently unavailable. No payment or wallet charge has been created.", 409);
+  if (automationEnabled() && input.expectedAmountPaisa !== amountPaisa) throw new AppError("The price has updated. Refresh the service catalog and review the new total before paying.", 409);
+  return { item, amountPaisa, quantity, links: targets.map(target => ({ platform: target.platform, ...(target.key !== target.platform ? { target: target.key } : {}), url: supplied.get(target.key)! })) };
 }
 
 function result(order: OrderRecord) {
@@ -96,9 +103,23 @@ export async function createOrder(raw: unknown, user: AccountUser | null) {
   if (input.method === "direct" && !input.reference) throw new AppError("Enter your eSewa transaction reference.");
   const email = (user?.email || input.email || "").toLowerCase();
   if (!email) throw new AppError("Enter your email so we can identify your order.");
-  const priced = quote(input);
-  const links = JSON.stringify(priced.links);
   const scope = user ? "user:" + user.id : "guest:" + email;
+  const replay = await one<OrderRecord>(getDb(), 'SELECT * FROM "appOrder" WHERE "requestScope"=$1 AND "requestKey"=$2', [scope, input.requestKey]);
+  if (replay) {
+    const payment = await one<{ reference: string }>(getDb(), 'SELECT reference FROM "appPayment" WHERE "orderId"=$1', [replay.id]);
+    const oldLinks = JSON.parse(replay.links) as PublicLink[];
+    if (replay.itemId !== input.itemId || replay.quantity !== input.quantity || replay.method !== input.method || oldLinks.length !== input.links.length || oldLinks.some(old => !input.links.some(link => link.platform === old.platform && link.target === old.target && link.url === old.url)) || (input.method === "direct" && payment?.reference !== input.reference)) throw new AppError("This request key was already used for a different order.", 409);
+    return result(replay);
+  }
+  let currentCatalog;
+  try { currentCatalog = await liveRetailCatalog(); } catch { throw new AppError("Automatic delivery is temporarily unavailable. No order or wallet charge has been created.", 503); }
+  const priced = quote(input, currentCatalog);
+  let deliverySteps = null;
+  if (automationEnabled()) {
+    try { deliverySteps = fulfillmentSteps(priced.item, priced.quantity, priced.links, await providerServices(), null); }
+    catch { throw new AppError("This service cannot be delivered with these details. No payment or wallet charge was created.", 409); }
+  }
+  const links = JSON.stringify(priced.links);
   return transaction(async (db) => {
     await lockRequest(db, "order:" + scope + ":" + input.requestKey);
     if (input.method === "direct") await lockRequest(db, "reference:" + input.reference!);
@@ -122,6 +143,7 @@ export async function createOrder(raw: unknown, user: AccountUser | null) {
       (await db.query("INSERT INTO \"appPayment\"(id,\"userId\",\"orderId\",kind,\"amountPaisa\",reference,status,\"createdAt\") VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [randomUUID(), user?.id ?? null, id, "order", priced.amountPaisa, input.reference!, "pending", now]));
     }
     await db.query('INSERT INTO "appTermsAcceptance"(id,"orderId","paymentId",purpose,version,language,content,"acceptedAt") VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(), id, null, "order", TERMS_VERSION, input.termsLanguage, termsSnapshot("order", input.termsLanguage), now]);
+    if (deliverySteps) await saveFulfillmentJobs(db, id, priced.amountPaisa, deliverySteps);
     return { id, status, amountPaisa: priced.amountPaisa, method: input.method };
   });
 }
@@ -154,7 +176,7 @@ export async function reviewPayment(raw: unknown, actorId: string) {
     const payment = (await one(db, "SELECT * FROM \"appPayment\" WHERE id = $1 FOR UPDATE", [input.paymentId])) as PaymentRecord | undefined;
     if (!payment) throw new AppError("Payment not found.", 404);
     const status = input.decision === "approve" ? "approved" : "rejected";
-    if (payment.status === status) return { id: payment.id, status };
+    if (payment.status === status) return { id: payment.id, status, orderId: payment.orderId };
     if (payment.status !== "pending") throw new AppError("This payment was already reviewed.", 409);
     const now = timestamp();
     if (input.decision === "approve" && payment.kind === "topup") {
@@ -172,7 +194,7 @@ export async function reviewPayment(raw: unknown, actorId: string) {
     }
     (await db.query("UPDATE \"appPayment\" SET status = $1, note = $2, \"reviewedBy\" = $3, \"reviewedAt\" = $4 WHERE id = $5 AND status = 'pending'", [status, input.note, actorId, now, payment.id]));
     (await db.query("INSERT INTO \"appAudit\"(id,\"actorId\",action,\"targetId\",note,\"createdAt\") VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), actorId, "payment_" + status, payment.id, input.note, now]));
-    return { id: payment.id, status };
+    return { id: payment.id, status, orderId: payment.orderId };
   });
 }
 
@@ -183,6 +205,7 @@ export async function updateOrderStatus(raw: unknown, actorId: string) {
     const order = (await one(db, "SELECT * FROM \"appOrder\" WHERE id = $1 FOR UPDATE", [input.orderId])) as OrderRecord | undefined;
     if (!order) throw new AppError("Order not found.", 404);
     if (order.status === input.status) return { id: order.id, status: order.status };
+    if ((automationEnabled() && order.status === "queued") || (await db.query('SELECT id FROM "appFulfillment" WHERE "orderId"=$1 LIMIT 1', [order.id])).rowCount) throw new AppError("This order uses automatic delivery. Its status comes from the provider.", 409);
     if (!["queued", "processing"].includes(order.status)) throw new AppError("Only paid, queued or processing orders can be updated.", 409);
     if (order.deliveryWindowMinutes > 0 && !input.scheduleConfirmed) throw new AppError("Confirm that the customer’s drip-feed schedule is configured with the provider before updating delivery.");
     const now = timestamp();
@@ -201,7 +224,7 @@ export async function accountData(user: AccountUser): Promise<AccountData> {
     many<PaymentRecord>(db, 'SELECT id,"userId","orderId",kind,"amountPaisa",reference,status,note,"createdAt","reviewedAt" FROM "appPayment" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 100', [user.id]),
     many<LedgerRecord>(db, 'SELECT id,"amountPaisa",kind,"sourceId","createdAt" FROM "appLedger" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 100', [user.id]),
   ]);
-  return { user, balancePaisa: balance?.balancePaisa ?? 0, deliveryServices: services.filter(supportsGradualDelivery), orders, payments, ledger };
+  return { user, balancePaisa: balance?.balancePaisa ?? 0, deliveryServices: services.filter(supportsGradualDelivery), orders: await attachFulfillment(orders), payments, ledger };
 }
 
 export async function adminData(actorId: string): Promise<AdminData> {
@@ -211,22 +234,26 @@ export async function adminData(actorId: string): Promise<AdminData> {
     many<AdminData["users"][number]>(db, 'SELECT u.id,u.name,u.email,u."emailVerified",u."createdAt",COALESCE(w."balancePaisa",0) AS "balancePaisa" FROM "user" u LEFT JOIN "appWallet" w ON u.id=w."userId" ORDER BY u."createdAt" DESC LIMIT 100'),
     many<AdminData["payments"][number]>(db, 'SELECT p.id,p."userId",p."orderId",p.kind,p."amountPaisa",p.reference,p.status,p.note,p."createdAt",p."reviewedAt",COALESCE(u.email,o.email) AS email,o."itemName" FROM "appPayment" p LEFT JOIN "user" u ON p."userId"=u.id LEFT JOIN "appOrder" o ON p."orderId"=o.id ORDER BY (p.status=\'pending\') DESC,p."createdAt" DESC LIMIT 100'),
     many<OrderRecord>(db, 'SELECT * FROM "appOrder" ORDER BY "createdAt" DESC LIMIT 100'),
-    many<AdminData["audit"][number]>(db, 'SELECT a.id,a.action,a."targetId",a.note,a."createdAt",u.email AS "actorEmail" FROM "appAudit" a JOIN "user" u ON a."actorId"=u.id ORDER BY a."createdAt" DESC LIMIT 100'),
+    many<AdminData["audit"][number]>(db, `SELECT a.id,a.action,a."targetId",a.note,a."createdAt",COALESCE(u.email,'Automatic delivery') AS "actorEmail" FROM "appAudit" a LEFT JOIN "user" u ON a."actorId"=u.id ORDER BY a."createdAt" DESC LIMIT 100`),
     one<AdminData["totals"]>(db, `SELECT (SELECT COUNT(*)::int FROM "user") AS users,
       (SELECT COUNT(*)::int FROM "appPayment" WHERE status='pending') AS "pendingPayments",
-      (SELECT COUNT(*)::int FROM "appOrder" WHERE status IN ('awaiting_delivery','queued','processing')) AS "queuedOrders",
+      (SELECT COUNT(*)::int FROM "appOrder" WHERE status IN ('awaiting_delivery','queued','submitting','submitted','processing','needs_attention')) AS "queuedOrders",
       (SELECT COALESCE(SUM("balancePaisa"),0)::bigint FROM "appWallet") AS "walletLiabilityPaisa"`),
   ]);
-  return { users, payments, orders, audit, totals: totals! };
+  return { automaticDelivery: automationEnabled(), providerConfigured: Boolean(process.env.SUVAKRIO_API_KEY?.trim()), users, payments, orders: await attachFulfillment(orders), audit, totals: totals! };
 }
 
 export async function chooseDelivery(raw: unknown, user: AccountUser) {
   const input = deliverySchema.parse(raw);
+  const before = await one<OrderRecord>(getDb(), 'SELECT * FROM "appOrder" WHERE id=$1 AND "userId"=$2', [input.orderId, user.id]);
+  if (!before) throw new AppError("Order not found.", 404);
+  // Fetch before opening a transaction: a cold cache must not exhaust the pool.
+  const providerCatalog = automationEnabled() && before.status === "awaiting_delivery" ? await providerServices() : null;
   return transaction(async (db) => {
     const order = (await one(db, "SELECT * FROM \"appOrder\" WHERE id = $1 AND \"userId\" = $2 FOR UPDATE", [input.orderId, user.id])) as OrderRecord | undefined;
     if (!order) throw new AppError("Order not found.", 404);
     if (order.status !== "awaiting_delivery") {
-      if (["queued", "processing", "completed"].includes(order.status) && order.deliveryWindowMinutes === input.deliveryWindowMinutes) return result(order);
+      if (["queued", "submitting", "submitted", "processing", "completed", "partial", "delivery_failed", "needs_attention"].includes(order.status) && order.deliveryWindowMinutes === input.deliveryWindowMinutes) return result(order);
       throw new AppError(["awaiting_payment", "payment_rejected"].includes(order.status) ? "Your payment must be approved before choosing delivery timing." : "The delivery choice is already confirmed. Contact support to change it.", 409);
     }
     const service = services.find((item) => item.id === order.itemId);
@@ -237,6 +264,15 @@ export async function chooseDelivery(raw: unknown, user: AccountUser) {
     const now = timestamp();
     (await db.query("UPDATE \"appOrder\" SET \"deliveryWindowMinutes\" = $1, \"deliveryPlan\" = $2, status = 'queued', \"updatedAt\" = $3 WHERE id = $4 AND status = 'awaiting_delivery'", [input.deliveryWindowMinutes, plan ? JSON.stringify(plan) : null, now, order.id]));
     (await db.query("INSERT INTO \"appAudit\"(id,\"actorId\",action,\"targetId\",note,\"createdAt\") VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), user.id, "delivery_selected", order.id, deliveryLabel(input.deliveryWindowMinutes) + (plan ? "; " + plan.runs + " batches of " + plan.quantityPerRun + " every " + plan.intervalMinutes + " minutes" : ""), now]));
+    if (automationEnabled()) {
+      let steps;
+      try { steps = fulfillmentSteps(service, order.quantity, JSON.parse(order.links), providerCatalog!, plan); }
+      catch (error) { throw new AppError(error instanceof Error ? error.message : "Delivery could not be configured.", 409); }
+      const existing = await db.query('SELECT id FROM "appFulfillment" WHERE "orderId"=$1 ORDER BY step', [order.id]);
+      if (existing.rows.length) {
+        for (const [index, step] of steps.entries()) await db.query(`UPDATE "appFulfillment" SET payload=$1,"updatedAt"=NOW() WHERE "orderId"=$2 AND step=$3 AND state='ready'`, [JSON.stringify(step), order.id, index]);
+      } else await saveFulfillmentJobs(db, order.id, order.amountPaisa, steps);
+    }
     // The order is already paid: choosing timing never debits or charges again.
     return result({ ...order, status: "queued", deliveryWindowMinutes: input.deliveryWindowMinutes, deliveryPlan: plan ? JSON.stringify(plan) : null });
   });

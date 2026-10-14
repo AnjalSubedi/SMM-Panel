@@ -15,6 +15,11 @@ const orderMessages: Record<string, [string, string]> = {
   payment_rejected: ["Order payment needs attention", "Your payment was not approved. Review the payment details or contact support."],
   awaiting_delivery: ["Payment confirmed. Choose delivery timing", "Your payment is confirmed. Open My orders and choose the usual speed or delivery spread over time."],
   queued: ["Your order is waiting to start", "Your payment is confirmed. We’re arranging delivery."],
+  submitting: ["Your order is being sent", "We are sending your paid order for delivery."],
+  submitted: ["Your order was accepted", "The provider has accepted your order. Delivery will start at the service's usual speed."],
+  needs_attention: ["We are checking your delivery", "Your order needs a delivery check. You will not be charged again."],
+  partial: ["Your order was partially delivered", "Open your order to see delivery details and any wallet refund."],
+  delivery_failed: ["Delivery could not start", "Open your order for details. Account payments for undelivered services are returned to your wallet."],
   processing: ["Your order is in progress", "Delivery has started. Check your order for the latest details."],
   completed: ["Your order is complete", "Delivery has been marked complete. Thank you for choosing Digital Marketing NP."],
 };

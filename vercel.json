@@ -3,5 +3,11 @@
   "buildCommand": "npm run db:migrate && npm run build",
   "regions": [
     "sin1"
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/fulfillment",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

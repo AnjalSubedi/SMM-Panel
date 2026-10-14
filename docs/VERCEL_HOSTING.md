@@ -6,7 +6,7 @@ Checked against the project and official documentation on 13 October 2026.
 
 The application now uses PostgreSQL for authentication, orders, wallet balances, payment review and delivery choices. Configure `DATABASE_URL` and run the explicit schema setup before deploying. Normal requests do not use a local database file or run DDL. The optional SQLite importer is an offline utility, not a server route.
 
-Recommended setup: Vercel for Next.js, Neon PostgreSQL through Vercel Marketplace for persistent data, Google OAuth for sign-in, and the optional verified email sender for email registration/recovery. Provider fulfillment remains manual and does not need a Suvakrio API key in Vercel yet.
+Recommended setup: Vercel for Next.js, Neon PostgreSQL through Vercel Marketplace for persistent data, Google OAuth for sign-in, and the optional verified email sender for email registration/recovery. Automatic fulfillment requires `SUVAKRIO_API_KEY` in Production and a funded provider balance. Add `CRON_SECRET` for the daily backup worker. Redeploy after adding these variables.
 
 ## 1. Create your Vercel account
 
