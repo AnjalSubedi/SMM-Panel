@@ -1,3 +1,4 @@
+import { termsAcceptance } from "../lib/terms";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -22,7 +23,7 @@ test("notifications isolate accounts and preserve read status across payment and
     const admin = await create("owner-notifications@example.test", true);
     await getDb().query('UPDATE "user" SET "emailVerified" = true WHERE id = $1', [admin.id]);
     assert.equal((await notificationData(a)).unreadCount, 0);
-    const topup = await requestTopup({ amount: 500, reference: "NOTIFY-" + randomUUID(), requestKey: randomUUID() }, a);
+    const topup = await requestTopup({ ...termsAcceptance(), amount: 500, reference: "NOTIFY-" + randomUUID(), requestKey: randomUUID() }, a);
     const pending = await notificationData(a);
     assert.equal(pending.unreadCount, 1);
     assert.match(pending.items[0].title, /being checked/);
@@ -37,14 +38,14 @@ test("notifications isolate accounts and preserve read status across payment and
     assert.notEqual(approved.items[0].id, pending.items[0].id);
     assert.match(approved.items[0].title, /Funds added/);
     assert.match(approved.items[0].description, /500/);
-    const order = await createOrder({ itemId: "FB_01", quantity: 1000, method: "wallet", links: [{ platform: "Facebook", url: "https://facebook.com/notification-test" }], requestKey: randomUUID() }, a);
+    const order = await createOrder({ ...termsAcceptance(), itemId: "FB_01", quantity: 1000, method: "wallet", links: [{ platform: "Facebook", url: "https://facebook.com/notification-test" }], requestKey: randomUUID() }, a);
     assert.equal((await notificationData(a)).unreadCount, 2);
     assert.ok((await notificationData(a)).items.some(item => item.href.endsWith(order.id)));
     await chooseDelivery({ orderId: order.id, deliveryWindowMinutes: 0 }, a);
     await updateOrderStatus({ orderId: order.id, status: "completed", note: "Isolated completion test" }, admin.id);
     const completed = await notificationData(a);
     assert.ok(completed.items.some(item => item.title === "Your order is complete"));
-    const ownB = await requestTopup({ amount: 100, reference: "NOTIFY-B-" + randomUUID(), requestKey: randomUUID() }, b);
+    const ownB = await requestTopup({ ...termsAcceptance(), amount: 100, reference: "NOTIFY-B-" + randomUUID(), requestKey: randomUUID() }, b);
     assert.ok(ownB.id);
     const bData = await notificationData(b);
     await assert.rejects(markNotificationsRead({ ids: [bData.items[0].id, completed.items[0].id] }, b), /not found/);

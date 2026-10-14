@@ -34,12 +34,53 @@ async function main() {
   try {
     await call('Page.enable'); await call('Runtime.enable'); await call('Network.enable'); await call('Network.clearBrowserCookies');
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false });
-    await go('/register', "!!document.querySelector('#auth-name')");
-    await screenshot('register');
+    await go('/services#calculator', "!!document.querySelector('#service-platform')");
+    await selectService();
+    assert.equal(await evaluate("document.querySelector('#order-terms-acceptance').checked"), false, 'Guest acceptance starts unchecked');
+    assert.equal(await evaluate("!!document.querySelector('dialog img[alt=\"eSewa payment QR\"]')"), false, 'No QR before acceptance');
+    await set('#guest-email', 'isolated-guest@example.test');
+    await set('#public-url-0', 'https://evil.com/wrong-platform');
+    await evaluate("document.querySelector('[data-terms=order] button[aria-pressed=false]').click()"); await settle();
+    assert.equal(await evaluate("document.querySelector('[data-terms=order] label').getAttribute('for')"), 'order-terms-acceptance');
+    assert.ok(await evaluate("document.querySelector('[data-terms=order] [lang=ne]') !== null"), 'Nepali terms available');
+    await evaluate("document.querySelector('#order-terms-acceptance').click()"); await settle();
+    await evaluate("document.querySelector('dialog form button:not([type])').click()");
+    await waitFor("document.querySelector('dialog [role=alert]')?.textContent.includes('selected platform')");
+    assert.equal(await evaluate("!!document.querySelector('#transaction-code')"), false, 'Wrong platform is rejected before payment');
+    await set('#public-url-0', 'https://facebook.com/isolated-guest');
+    assert.equal(await evaluate("document.querySelector('#order-terms-acceptance').checked"), false, 'Editing the link requires fresh acceptance');
+    await evaluate("document.querySelector('#order-terms-acceptance').click()"); await settle();
+    await evaluate("document.querySelector('dialog form button:not([type])').click()");
+    await waitFor("!!document.querySelector('#transaction-code')");
+    await call('Emulation.setDeviceMetricsOverride', { width: 375, height: 1000, deviceScaleFactor: 1, mobile: true }); await settle();
+    assert.ok(await evaluate("document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth"), 'Bilingual terms fit mobile checkout');
+    await evaluate("document.querySelector('[data-terms=order]').scrollIntoView({block:'start',behavior:'instant'})");await settle();await screenshot('checkout-terms-ne-mobile');
+    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false }); await settle();
+    await set('#transaction-code', 'ISOLATED-GUEST-' + randomUUID());
+    await evaluate("document.querySelector('dialog form button:not([type])').click()");
+    await waitFor("document.querySelector('dialog')?.textContent.includes('Payment submitted for review')");
+    await evaluate("document.querySelector('dialog button[aria-label=\"Close checkout\"]').click()");
+    await go('/terms', "document.querySelector('h1')?.textContent === 'Terms & Refund Policy'");
+    assert.ok(await evaluate("document.querySelector('#order-ne')?.textContent.includes('सार्वजनिक')"));
+    assert.ok(await evaluate("document.querySelector('#wallet-en')?.textContent.includes('approved')"));
     const customerEmail = 'browser-' + randomUUID() + '@example.test';
     const customerPassword = randomUUID() + '-Test-Pass';
-    await set('#auth-name', 'Browser Customer'); await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
-    await evaluate("document.querySelector('form button:not([type])').click()");
+    if (process.env.NODE_ENV === 'production') {
+      await require('./qa-user.cjs').seedQaUser('Browser Customer', customerEmail, customerPassword);
+      await go('/login', "!!document.querySelector('#auth-email')");
+    } else {
+      await go('/register', "!!document.querySelector('#auth-name')");
+      await screenshot('register'); await set('#auth-name', 'Browser Customer');
+    }
+    if (process.env.NODE_ENV === 'production') {
+      const login = await browserPost('/api/auth/sign-in/email', { email: customerEmail, password: customerPassword });
+      assert.equal(login.status, 200, 'Verified local QA identity signs in through the production API');
+      const destination = await evaluate('new URL(location.href).searchParams.get("next") || "/account"');
+      await call('Page.navigate', { url: base + destination });
+    } else {
+      await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
+      await evaluate("document.querySelector('form button:not([type])').click()");
+    }
     await waitFor("location.pathname === '/account' && document.body.textContent.includes('Welcome, Browser.')");
     await waitFor("!!document.querySelector('header') && !document.querySelector('header .animate-pulse')");
     await settle();
@@ -78,6 +119,11 @@ async function main() {
     assert.equal(await evaluate("document.querySelectorAll('#service-platform option').length"), 10, 'Dashboard offers all nine platforms');
     await screenshot('account');
     const reference = ('BROWSER-DEPOSIT-' + randomUUID()).toUpperCase();
+    assert.equal(await evaluate("!!document.querySelector('#deposit-reference')"), false, 'Wallet payment stays hidden before acceptance');
+    assert.equal(await evaluate("document.querySelector('#wallet-terms-acceptance').checked"), false);
+    await evaluate("document.querySelector('#wallet-terms-acceptance').click()"); await settle();
+    await evaluate("document.querySelector('#add-funds form button:not([type])').click()");
+    await waitFor("!!document.querySelector('#deposit-reference')");
     await set('#deposit-reference', reference);
     await evaluate("document.querySelector('#add-funds form button:not([type])').click()");
     await waitFor("document.body.textContent.includes('Payment details received')");
@@ -122,8 +168,13 @@ async function main() {
     await screenshot('wallet-insufficient');
     await click('Pay directly with eSewa');
     const directReference = ('BROWSER-ORDER-' + randomUUID()).toUpperCase();
-    await set('#transaction-code', directReference);
     await set('#public-url-0', 'https://facebook.com/browser-example');
+    assert.equal(await evaluate("!!document.querySelector('#transaction-code')"), false, 'Order payment stays hidden before acceptance');
+    assert.equal(await evaluate("document.querySelector('#order-terms-acceptance').checked"), false);
+    await evaluate("document.querySelector('#order-terms-acceptance').click()"); await settle();
+    await evaluate("document.querySelector('dialog form button:not([type])').click()");
+    await waitFor("!!document.querySelector('#transaction-code')");
+    await set('#transaction-code', directReference);
     await evaluate("document.querySelector('dialog form button:not([type])').click()");
     await waitFor("document.querySelector('dialog')?.textContent.includes('Payment submitted for review')");
     await screenshot('direct-payment-success');
@@ -136,8 +187,11 @@ async function main() {
     // Only this disposable QA database is modified to simulate a verified owner.
     const ownerEmail = 'qa-owner@example.test';
     const ownerPassword = 'Isolated-Test-Owner-Password-2026!';
-    const registerOwner = await browserPost('/api/auth/sign-up/email', { email: ownerEmail, name: 'QA Owner', password: ownerPassword });
-    assert.ok([200, 422].includes(registerOwner.status), JSON.stringify(registerOwner));
+    if (process.env.NODE_ENV === 'production') await require('./qa-user.cjs').seedQaUser('QA Owner', ownerEmail, ownerPassword);
+    else {
+      const registerOwner = await browserPost('/api/auth/sign-up/email', { email: ownerEmail, name: 'QA Owner', password: ownerPassword });
+      assert.ok([200, 422].includes(registerOwner.status), JSON.stringify(registerOwner));
+    }
     const databaseURL = new URL(process.env.QA_DATABASE_URL || '');
     if (databaseURL.hostname !== '127.0.0.1' || databaseURL.username !== 'dmnp_test' || databaseURL.pathname !== '/dmnp_qa') throw new Error('Browser tests only modify the isolated local PostgreSQL QA database.');
     const db = new Pool({ connectionString: databaseURL.toString(), max: 1 });
@@ -171,6 +225,10 @@ async function main() {
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('NPR 500')");
     await set('#public-url-0', 'https://facebook.com/browser-wallet');
+    await evaluate("document.querySelector('#order-terms-acceptance').click()"); await settle();
+    await waitFor("!document.querySelector('dialog form button:not([type])').disabled");
+    await evaluate("document.querySelector('dialog form button:not([type])').click()");
+    await waitFor("document.querySelector('dialog form button:not([type])').textContent.includes('from wallet')");
     await evaluate("document.querySelector('dialog form button:not([type])').click()");
     await waitFor("document.querySelector('dialog')?.textContent.includes('Paid from your wallet')");
     await waitFor("document.querySelector('main').textContent.includes('NPR 313.75') && !!document.querySelector('[data-delivery-order]')");
@@ -194,10 +252,18 @@ async function main() {
     await waitFor("location.pathname === '/login' && !!document.querySelector('#auth-email')");
     await waitFor("!document.querySelector('header .animate-pulse')");
     await screenshot('login');
-    await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
-    await evaluate("document.querySelector('form button:not([type])').click()");
+    if (process.env.NODE_ENV === 'production') {
+      const login = await browserPost('/api/auth/sign-in/email', { email: customerEmail, password: customerPassword });
+      assert.equal(login.status, 200, 'Verified local QA identity signs in through the production API');
+      const destination = await evaluate('new URL(location.href).searchParams.get("next") || "/account"');
+      await call('Page.navigate', { url: base + destination });
+    } else {
+      await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
+      await evaluate("document.querySelector('form button:not([type])').click()");
+    }
     await waitFor("location.pathname === '/services' && document.querySelector('dialog')?.open");
     assert.equal(await evaluate("document.querySelector('#public-url-0').value"), 'https://facebook.com/saved-draft');
+    assert.equal(await evaluate("document.querySelector('#order-terms-acceptance').checked"), false, 'Resumed checkout requires fresh acceptance');
     assert.match(await evaluate("document.querySelector('dialog').textContent"), /186.25/);
     assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');
 
@@ -237,7 +303,10 @@ async function main() {
     await evaluate(`[...document.querySelectorAll('article')].find(a=>a.textContent.includes(${JSON.stringify(directId)})).querySelector('button').click()`);
     await waitFor(`[...document.querySelectorAll('article')].find(a=>a.textContent.includes(${JSON.stringify(directId)}))?.textContent.includes('In progress')`);
     assert.deepEqual(errors, []);
-    console.log('Browser checks passed: real registration/login/logout, deposit review, admin approval, wallet debit, direct order, account history, saved checkout after login, admin authorization and responsive dashboard ordering, saved checkout after adding funds, immediate balance/history refresh, payment-gated gradual/default delivery selection, exact batch preview and unchanged wallet balance.');
+    console.log('Browser checks passed: isolated account login/logout, bilingual pre-payment terms, deposit review, admin approval, wallet debit, direct order, account history, saved checkout after login, admin authorization and responsive dashboard ordering, saved checkout after adding funds, immediate balance/history refresh, payment-gated gradual/default delivery selection, exact batch preview and unchanged wallet balance.');
+  } catch (error) {
+    await fs.writeFile('.qa/checkout-failure.json', JSON.stringify(await evaluate("({url:location.pathname,button:[...document.querySelectorAll('dialog form button:not([type])')].map(e=>({text:e.textContent,disabled:e.disabled})),invalid:[...document.querySelectorAll('dialog input:invalid')].map(e=>({id:e.id,required:e.required,hidden:!e.checkVisibility(),message:e.validationMessage})),alert:document.querySelector('dialog [role=alert]')?.textContent})"), null, 2));
+    await screenshot('checkout-failure'); throw error;
   } finally { socket.close(); await fetch('http://localhost:9223/json/close/' + target.id); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

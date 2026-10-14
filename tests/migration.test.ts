@@ -35,6 +35,7 @@ test("PostgreSQL migration is repeatable and imports durable SQLite records with
     assert.equal(order!.status, "processing"); assert.equal(order!.amountPaisa, 1390);
     assert.equal(order!.deliveryWindowMinutes, 0); assert.equal(order!.deliveryPlan, null);
     await migrateDatabase();
+    assert.equal((await db.query('SELECT COUNT(*) AS count FROM "appTermsAcceptance"')).rows[0].count, 0, "Existing orders are not assigned fabricated acceptance");
     assert.equal((await one(db, 'SELECT "balancePaisa" FROM "appWallet" WHERE "userId" = $1', ["legacy-user"]))!.balancePaisa, 50000);
     await assert.rejects(importSqlite(filename), /must be empty/);
     const { getAuth } = await import("../lib/server/auth");

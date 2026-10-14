@@ -1,3 +1,4 @@
+import { termsAcceptance } from "../lib/terms";
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -25,8 +26,8 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
   const customer = await register("customer@example.test", "Customer");
   const outsider = await register("other@example.test", "Outsider");
   const link = [{ platform: "Facebook", url: "https://facebook.com/test-page" }];
-  const order = (requestKey = randomUUID()) => ({ itemId: "FB_01", quantity: 1250, links: link, method: "wallet", requestKey });
-  const deposit = { amount: 500, reference: "ESEWA-TEST-001", requestKey: randomUUID() };
+  const order = (requestKey = randomUUID()) => ({ ...termsAcceptance(), itemId: "FB_01", quantity: 1250, links: link, method: "wallet", requestKey });
+  const deposit = { ...termsAcceptance(), amount: 500, reference: "ESEWA-TEST-001", requestKey: randomUUID() };
 
   await t.test("owner email alone cannot grant admin access", async () => {
     assert.equal((await isAdminId(owner.id)), false);
@@ -43,7 +44,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     await assert.rejects(async () => (await createOrder(order(), customer)), /Insufficient/);
     assert.equal((await accountData(customer)).orders.length, 0, "Failed debit rolls back order insertion");
     assert.deepEqual((await requestTopup(deposit, customer)), claim, "Retry is idempotent");
-    await assert.rejects(async () => (await requestTopup({ ...deposit, requestKey: randomUUID() }, outsider)), /already been submitted/);
+    await assert.rejects(async () => (await requestTopup({ ...termsAcceptance(), ...deposit, requestKey: randomUUID() }, outsider)), /already been submitted/);
   });
 
   await t.test("admin approval credits once and is audited", async () => {
@@ -70,7 +71,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     assert.equal(Object.getPrototypeOf((await accountData(customer)).orders[0]), Object.prototype);
     assert.equal((await accountData(customer)).balancePaisa, 31375);
     assert.equal((await accountData(customer)).ledger.filter((entry) => entry.kind === "order").length, 1);
-    await assert.rejects(async () => (await createOrder({ ...input, quantity: 1000 }, customer)), /different order/);
+    await assert.rejects(async () => (await createOrder({ ...termsAcceptance(), ...input, quantity: 1000 }, customer)), /different order/);
     await assert.rejects(async () => (await createOrder({ ...order(), price: 1 }, customer)));
     await assert.rejects(async () => (await createOrder({ ...order(), quantity: 1 }, customer)), /outside/);
     await assert.rejects(async () => (await createOrder({ ...order(), quantity: 1.5 }, customer)));
@@ -101,13 +102,13 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
   await t.test("guest payment, reference reuse, rejected deposits and bundles", async () => {
     const guest = (await createOrder({ ...order(), method: "direct", email: "guest@example.test", reference: "GUEST-REF-001" }, null));
     assert.equal(guest.status, "awaiting_payment");
-    await assert.rejects(async () => (await requestTopup({ amount: 100, reference: "GUEST-REF-001", requestKey: randomUUID() }, customer)), /already been submitted/);
-    const rejected = (await requestTopup({ amount: 100, reference: "REJECT-REF-001", requestKey: randomUUID() }, customer));
+    await assert.rejects(async () => (await requestTopup({ ...termsAcceptance(), amount: 100, reference: "GUEST-REF-001", requestKey: randomUUID() }, customer)), /already been submitted/);
+    const rejected = (await requestTopup({ ...termsAcceptance(), amount: 100, reference: "REJECT-REF-001", requestKey: randomUUID() }, customer));
     (await reviewPayment({ paymentId: rejected.id, decision: "reject", confirmedReceived: false, note: "Payment not received" }, owner.id));
     assert.equal((await accountData(customer)).balancePaisa, 12750);
-    await assert.rejects(async () => (await requestTopup({ amount: 100.001, reference: "DECIMAL-TEST", requestKey: randomUUID() }, customer)), /decimal/);
-    await assert.rejects(async () => (await createOrder({ itemId: "COMBO_CREATOR_STARTER", quantity: 1, links: link, method: "direct", email: "guest@example.test", reference: "BUNDLE-REF-1", requestKey: randomUUID() }, null)), /each platform/);
-    const bundle = (await createOrder({ itemId: "COMBO_CREATOR_STARTER", quantity: 1, links: [...link, { platform: "Instagram", url: "https://instagram.com/test" }], method: "direct", email: "guest@example.test", reference: "BUNDLE-REF-1", requestKey: randomUUID() }, null));
+    await assert.rejects(async () => (await requestTopup({ ...termsAcceptance(), amount: 100.001, reference: "DECIMAL-TEST", requestKey: randomUUID() }, customer)), /decimal/);
+    await assert.rejects(async () => (await createOrder({ ...termsAcceptance(), itemId: "COMBO_CREATOR_STARTER", quantity: 1, links: link, method: "direct", email: "guest@example.test", reference: "BUNDLE-REF-1", requestKey: randomUUID() }, null)), /each platform/);
+    const bundle = (await createOrder({ ...termsAcceptance(), itemId: "COMBO_CREATOR_STARTER", quantity: 1, links: [...link, { platform: "Instagram", url: "https://instagram.com/test" }], method: "direct", email: "guest@example.test", reference: "BUNDLE-REF-1", requestKey: randomUUID() }, null));
     assert.equal(bundle.amountPaisa, 99900);
     await assert.rejects(async () => (await createOrder({ ...order(), method: "direct", reference: "INVALID-LINK-1", links: [{ platform: "Facebook", url: "javascript:alert(1)" }] }, customer)));
   });
@@ -117,10 +118,10 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     const accepted = (await createOrder(flexible, customer));
     assert.equal(accepted.amountPaisa, 89, "10 units are priced proportionally at the unchanged storefront rate");
     assert.equal((await accountData(customer)).balancePaisa, 12750, "Direct minimum-size order does not debit wallet");
-    await assert.rejects(async () => (await createOrder({ ...flexible, quantity: 9, requestKey: randomUUID(), reference: "MIN-TEN-LOW" }, customer)), /outside/);
-    await assert.rejects(async () => (await createOrder({ ...flexible, quantity: 50001, requestKey: randomUUID(), reference: "MIN-TEN-HIGH" }, customer)), /outside/);
+    await assert.rejects(async () => (await createOrder({ ...termsAcceptance(), ...flexible, quantity: 9, requestKey: randomUUID(), reference: "MIN-TEN-LOW" }, customer)), /outside/);
+    await assert.rejects(async () => (await createOrder({ ...termsAcceptance(), ...flexible, quantity: 50001, requestKey: randomUUID(), reference: "MIN-TEN-HIGH" }, customer)), /outside/);
     await assert.rejects(async () => (await createOrder({ ...order(), quantity: 10 }, customer)), /outside/, "Facebook page likes + followers requires at least 100");
-    const deposit = (await requestTopup({ amount: 100, reference: "MIN-TEN-WALLET", requestKey: randomUUID() }, outsider));
+    const deposit = (await requestTopup({ ...termsAcceptance(), amount: 100, reference: "MIN-TEN-WALLET", requestKey: randomUUID() }, outsider));
     (await reviewPayment({ paymentId: deposit.id, decision: "approve", confirmedReceived: true, note: "Isolated test deposit" }, owner.id));
     const paid = (await createOrder({ ...order(), itemId: "FB_05", quantity: 10 }, outsider));
     assert.equal(paid.amountPaisa, 89);
@@ -162,7 +163,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     assert.equal((await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 0 }, outsider)).status, "queued");
     await assert.rejects(async () => (await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 30 }, outsider)));
     await assert.rejects(async () => (await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 0, runs: 100 }, outsider)), /Unrecognized/);
-    const guest = (await createOrder({ ...input, email: "guest-timing@example.test", reference: "TIMED-GUEST-001", requestKey: randomUUID() }, null));
+    const guest = (await createOrder({ ...termsAcceptance(), ...input, email: "guest-timing@example.test", reference: "TIMED-GUEST-001", requestKey: randomUUID() }, null));
     const guestPayment = (await adminData(owner.id)).payments.find((entry) => entry.orderId === guest.id)!;
     (await reviewPayment({ paymentId: guestPayment.id, decision: "approve", confirmedReceived: true, note: "Simulated guest payment" }, owner.id));
     assert.equal((await adminData(owner.id)).orders.find((entry) => entry.id === guest.id)!.status, "queued", "Guest retains original default delivery");
@@ -170,7 +171,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
 
   await t.test("PostgreSQL locks prevent duplicate concurrent approvals, debits and schedule changes", async () => {
     const concurrent = await register("concurrency@example.test", "Concurrent Customer");
-    const topup = await requestTopup({ amount: 100, reference: "CONCURRENT-DEPOSIT", requestKey: randomUUID() }, concurrent);
+    const topup = await requestTopup({ ...termsAcceptance(), amount: 100, reference: "CONCURRENT-DEPOSIT", requestKey: randomUUID() }, concurrent);
     await Promise.all(Array.from({ length: 4 }, () => reviewPayment({ paymentId: topup.id, decision: "approve", confirmedReceived: true, note: "Concurrent simulated approval" }, owner.id)));
     assert.equal((await accountData(concurrent)).balancePaisa, 10000);
     assert.equal((await accountData(concurrent)).ledger.length, 1);
@@ -180,7 +181,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     assert.equal((await accountData(concurrent)).balancePaisa, 9110);
     assert.equal((await accountData(concurrent)).ledger.length, 2);
     const reference = { amount: 100, reference: "CONCURRENT-SAME-REFERENCE" };
-    const claims = await Promise.allSettled([requestTopup({ ...reference, requestKey: randomUUID() }, concurrent), requestTopup({ ...reference, requestKey: randomUUID() }, outsider)]);
+    const claims = await Promise.allSettled([requestTopup({ ...termsAcceptance(), ...reference, requestKey: randomUUID() }, concurrent), requestTopup({ ...termsAcceptance(), ...reference, requestKey: randomUUID() }, outsider)]);
     assert.equal(claims.filter((entry) => entry.status === "fulfilled").length, 1);
     const follower = await createOrder({ ...order(), itemId: "FB_03", quantity: 100 }, concurrent);
     const choices = await Promise.allSettled([chooseDelivery({ orderId: follower.id, deliveryWindowMinutes: 0 }, concurrent), chooseDelivery({ orderId: follower.id, deliveryWindowMinutes: 60 }, concurrent)]);

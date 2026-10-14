@@ -13,6 +13,7 @@ The canonical public site is https://www.digitalmarketingnp.me. Vercel should ke
 | /services/youtube | YouTube subscribers, views and watch time in Nepal |
 | /services/tiktok | TikTok followers, likes and views in Nepal |
 | /website-design | Portfolio, business website and online store development in Nepal |
+| /terms | Bilingual order, wallet and refund policy |
 
 These are real service pages with existing catalog data, distinct descriptions, ordering guidance and working checkout. The full /services price list renders all 58 services across nine platforms in the initial HTML. The platform price tables use the same data and units as the calculator. No provider requests are used to build these pages.
 

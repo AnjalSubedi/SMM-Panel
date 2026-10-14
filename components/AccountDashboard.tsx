@@ -11,6 +11,8 @@ import { customerItemName } from "../lib/customerCopy";
 import type { AccountData } from "../lib/account-types";
 import StatusBadge from "./StatusBadge";
 import PaymentQr from "./PaymentQr";
+import TermsAcceptance from "./TermsAcceptance";
+import { termsAcceptance, type TermsLanguage } from "../lib/terms";
 import DeliveryChoice from "./DeliveryChoice";
 import OrderDeliveryDetails from "./OrderDeliveryDetails";
 import UserAvatar from "./UserAvatar";
@@ -31,6 +33,10 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
   const accountController = useRef<AbortController | null>(null);
   useEffect(() => () => { accountController.current?.abort(); }, []);
   const { refreshNotifications } = useAccount();
+  const walletPaymentRef = useRef<HTMLDivElement>(null);
+  const [walletTermsAccepted, setWalletTermsAccepted] = useState(false);
+  const [walletTermsLanguage, setWalletTermsLanguage] = useState<TermsLanguage>("en");
+  const [walletPaymentReady, setWalletPaymentReady] = useState(false);
   const [amount, setAmount] = useState("500");
   const [reference, setReference] = useState("");
   const [requestKey, setRequestKey] = useState("");
@@ -38,6 +44,13 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (walletPaymentReady) {
+      walletPaymentRef.current?.focus({ preventScroll: true });
+      walletPaymentRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  }, [walletPaymentReady]);
 
   function refresh(force = true): Promise<void> {
     if (accountRequest.current && !force) return accountRequest.current;
@@ -69,14 +82,18 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
   }, [awaitingPayment]);
 
   async function addFunds(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    event.preventDefault();
+    if (busy) return;
+    if (!walletTermsAccepted) { setError("Please read and accept the wallet terms before payment."); return; }
+    if (!walletPaymentReady) { if (event.currentTarget.reportValidity()) { setWalletPaymentReady(true); setError(""); setMessage(""); } return; }
+    setBusy(true); setError(""); setMessage("");
     const key = requestKey || crypto.randomUUID(); setRequestKey(key);
     try {
-      const response = await fetch("/api/account/topups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: Number(amount), reference: reference.trim(), requestKey: key }) });
+      const response = await fetch("/api/account/topups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: Number(amount), reference: reference.trim(), requestKey: key, ...termsAcceptance(walletTermsLanguage) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Deposit could not be submitted.");
       setMessage("Payment details received. We’ll add the money to your wallet once our team checks the payment.");
-      setReference(""); setRequestKey("");
+      setReference(""); setRequestKey(""); setWalletTermsAccepted(false); setWalletPaymentReady(false);
       await refresh();
     } catch (issue) { setError(issue instanceof Error ? issue.message : "Unable to submit this deposit."); }
     finally { setBusy(false); }
@@ -98,8 +115,12 @@ export default function AccountDashboard({ initial, services, resumeCheckout = f
         <h2 className="text-xl font-bold tracking-tight">Order history</h2><p className="mt-1 text-xs leading-6 text-slate-500">Your latest 100 orders, whether paid with eSewa or your wallet.</p>
         <div className="mt-5 space-y-3">{data.orders.length ? data.orders.map((order) => <article key={order.id} id={"order-" + order.id} className="scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono text-[10px] text-slate-400">#{order.id.slice(0, 8)}</span><StatusBadge status={order.status} /></div><h3 className="mt-3 text-sm font-bold leading-6">{customerItemName(order.itemId, order.itemName)}</h3><div className="mt-3 flex justify-between gap-3 text-xs text-slate-500"><span>{order.itemKind === "package" ? "Package" : "Quantity: " + order.quantity.toLocaleString("en-US")} &middot; {order.method === "wallet" ? "Wallet" : "Direct eSewa"}</span><span className="font-mono font-bold text-slate-800">{formatPrice(order.amountPaisa / 100)}</span></div><p className="mt-2 text-[10px] text-slate-400">{date(order.createdAt)}</p>{order.status === "awaiting_delivery" && data.deliveryServices.find((service) => service.id === order.itemId) ? <DeliveryChoice orderId={order.id} service={data.deliveryServices.find((service) => service.id === order.itemId)!} quantity={order.quantity} onSaved={refresh} /> : order.status === "awaiting_payment" && data.deliveryServices.some((service) => service.id === order.itemId) ? <p className="mt-3 text-xs leading-6 text-blue-700">Once we check your payment, you can choose your delivery timing here.</p> : ["queued", "processing", "completed"].includes(order.status) ? <OrderDeliveryDetails minutes={order.deliveryWindowMinutes} value={order.deliveryPlan} /> : null}</article>) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center"><p className="text-sm text-slate-500">No orders yet. Choose a service when you’re ready.</p><a href="#new-order" className="mt-4 inline-block text-sm font-semibold text-blue-600">Browse services</a></div>}</div>
       </div>
-      <section id="add-funds" className="scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><p className="eyebrow">Account wallet</p><h2 className="mt-2 text-xl font-bold tracking-tight">Add funds with eSewa</h2><p className="mb-5 mt-2 text-xs leading-6 text-slate-500">Pay with the QR below, then enter the amount and transaction code from your receipt. Our team will check the payment before adding it to your balance.</p><PaymentQr />
-        <form onSubmit={addFunds} className="mt-5 space-y-4"><div><label htmlFor="deposit-amount" className="text-xs font-semibold text-slate-700">Amount paid (NPR)</label><input id="deposit-amount" required type="number" min="100" max="100000" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} className="field-input font-mono" /><div className="mt-2 flex gap-2">{[500, 1000, 2500].map((value) => <button type="button" key={value} onClick={() => setAmount(String(value))} className="rounded-lg border border-slate-200 px-3 py-2 font-mono text-[10px] text-slate-600">{formatPrice(value)}</button>)}</div></div><div><label htmlFor="deposit-reference" className="text-xs font-semibold text-slate-700">eSewa transaction code</label><input id="deposit-reference" required minLength={6} maxLength={64} pattern="[a-zA-Z0-9-]+" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Transaction code from your payment receipt" className="field-input font-mono" /></div><button disabled={busy} className="button-primary min-h-12 w-full px-4 text-sm disabled:opacity-50">{busy ? "Submitting..." : "Send payment details"}<ArrowRight size={16} /></button></form>
+      <section id="add-funds" className="scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><p className="eyebrow">Account wallet</p><h2 className="mt-2 text-xl font-bold tracking-tight">Add funds with eSewa</h2><p className="mt-2 text-xs leading-6 text-slate-500">Choose an amount and read the wallet terms before paying. Our team checks your payment before adding it to your balance.</p>
+        <form onSubmit={addFunds} className="mt-5 space-y-4"><div><label htmlFor="deposit-amount" className="text-xs font-semibold text-slate-700">Amount to add (NPR)</label><input id="deposit-amount" required disabled={busy} type="number" min="100" max="100000" step="0.01" value={amount} onChange={(event) => { setAmount(event.target.value); setReference(""); setWalletTermsAccepted(false); setWalletPaymentReady(false); }} className="field-input font-mono" /><div className="mt-2 flex flex-wrap gap-2">{[500, 1000, 2500].map((value) => <button type="button" disabled={busy} key={value} onClick={() => { setAmount(String(value)); setReference(""); setWalletTermsAccepted(false); setWalletPaymentReady(false); }} className="rounded-lg border border-slate-200 px-3 py-2 font-mono text-[10px] text-slate-600">{formatPrice(value)}</button>)}</div></div>
+          <TermsAcceptance purpose="wallet" accepted={walletTermsAccepted} language={walletTermsLanguage} disabled={busy} onAcceptedChange={value => { setWalletTermsAccepted(value); if (!value) setWalletPaymentReady(false); }} onLanguageChange={value => { if (value !== walletTermsLanguage) { setWalletTermsLanguage(value); setWalletTermsAccepted(false); setWalletPaymentReady(false); } }} />
+          {walletPaymentReady && <div ref={walletPaymentRef} tabIndex={-1} role="region" aria-label="eSewa wallet payment instructions" className="space-y-4"><PaymentQr /><p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800">Pay exactly {formatPrice(Number(amount))}. Enter the transaction code from your receipt below.</p><div><label htmlFor="deposit-reference" className="text-xs font-semibold text-slate-700">eSewa transaction code</label><input id="deposit-reference" required disabled={busy} minLength={6} maxLength={64} pattern="[a-zA-Z0-9-]+" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Transaction code from your payment receipt" className="field-input font-mono" /></div></div>}
+          <button disabled={busy || !walletTermsAccepted} className="button-primary min-h-12 w-full px-4 text-sm disabled:opacity-50">{busy ? "Submitting..." : walletPaymentReady ? "Send payment details" : "Continue to eSewa payment"}<ArrowRight size={16} /></button>
+        </form>
       </section>
     </div>
     <div className="mt-10 grid gap-7 lg:grid-cols-2"><section id="payments" className="min-w-0 scroll-mt-28"><h2 className="text-xl font-bold tracking-tight">Payment history</h2><div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">{data.payments.length ? data.payments.map((payment) => <div key={payment.id} id={"payment-" + payment.id} className="scroll-mt-28 border-b border-slate-100 p-4 last:border-0"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{payment.kind === "topup" ? "Wallet top-up" : "Order payment"} &middot; {formatPrice(payment.amountPaisa / 100)}</p><StatusBadge status={payment.status} /></div><p className="mt-2 break-all font-mono text-[10px] text-slate-500">{payment.reference}</p>{payment.note && <p className="mt-2 text-xs text-slate-600">{payment.note}</p>}</div>) : <p className="p-5 text-xs text-slate-500">No payments submitted yet.</p>}</div></section>

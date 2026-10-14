@@ -4,5 +4,5 @@ import { servicePages } from "../lib/servicePages";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   if (isPreview) return [];
-  return ["/", "/services", ...servicePages.map(page => "/services/" + page.slug), "/website-design"].map(path => ({ url: siteUrl + (path === "/" ? "" : path) }));
+  return ["/", "/services", ...servicePages.map(page => "/services/" + page.slug), "/website-design", "/terms"].map(path => ({ url: siteUrl + (path === "/" ? "" : path) }));
 }

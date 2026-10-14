@@ -1,3 +1,4 @@
+import { TERMS_VERSION, termsSnapshot } from "../terms";
 import { isPublicWebLink } from "../publicLinks";
 import "server-only";
 import { randomUUID } from "node:crypto";
@@ -15,6 +16,10 @@ const referenceSchema = z.string().trim().min(6, "Enter the eSewa transaction re
 const linkSchema = z.object({ platform: z.string().min(1).max(40), url: z.string().trim().max(2048).url("Enter a valid public URL.").refine((value) => ["https:", "http:"].includes(new URL(value).protocol), "Use an https:// or http:// URL.") }).strict();
 
 export const orderSchema = z.object({
+  termsAccepted: z.literal(true, { error: "Please read and accept the terms before payment." }),
+  termsVersion: z.literal(TERMS_VERSION, { error: "The terms have changed. Refresh the page, review them and try again." }),
+  termsLanguage: z.enum(["en", "ne"]),
+
   itemId: z.string().min(1).max(80),
   quantity: z.number().int().positive(),
   links: z.array(linkSchema).min(1).max(9),
@@ -26,6 +31,10 @@ export const orderSchema = z.object({
 export type OrderInput = z.infer<typeof orderSchema>;
 
 export const topupSchema = z.object({
+  termsAccepted: z.literal(true, { error: "Please read and accept the terms before payment." }),
+  termsVersion: z.literal(TERMS_VERSION, { error: "The terms have changed. Refresh the page, review them and try again." }),
+  termsLanguage: z.enum(["en", "ne"]),
+
   amount: z.number().min(100, "The minimum deposit is NPR 100.").max(100000, "The maximum deposit is NPR 100,000."),
   reference: referenceSchema,
   requestKey: z.string().uuid(),
@@ -112,6 +121,7 @@ export async function createOrder(raw: unknown, user: AccountUser | null) {
     } else {
       (await db.query("INSERT INTO \"appPayment\"(id,\"userId\",\"orderId\",kind,\"amountPaisa\",reference,status,\"createdAt\") VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [randomUUID(), user?.id ?? null, id, "order", priced.amountPaisa, input.reference!, "pending", now]));
     }
+    await db.query('INSERT INTO "appTermsAcceptance"(id,"orderId","paymentId",purpose,version,language,content,"acceptedAt") VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(), id, null, "order", TERMS_VERSION, input.termsLanguage, termsSnapshot("order", input.termsLanguage), now]);
     return { id, status, amountPaisa: priced.amountPaisa, method: input.method };
   });
 }
@@ -131,6 +141,7 @@ export async function requestTopup(raw: unknown, user: AccountUser) {
     if ((await one(db, "SELECT id FROM \"appPayment\" WHERE reference = $1", [input.reference]))) throw new AppError("This eSewa reference has already been submitted.", 409);
     const id = randomUUID();
     (await db.query("INSERT INTO \"appPayment\"(id,\"userId\",kind,\"amountPaisa\",reference,status,\"requestKey\",\"createdAt\") VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [id, user.id, "topup", amountPaisa, input.reference, "pending", input.requestKey, timestamp()]));
+    await db.query('INSERT INTO "appTermsAcceptance"(id,"orderId","paymentId",purpose,version,language,content,"acceptedAt") VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(), null, id, "wallet", TERMS_VERSION, input.termsLanguage, termsSnapshot("wallet", input.termsLanguage), timestamp()]);
     return { id, status: "pending" };
   });
 }

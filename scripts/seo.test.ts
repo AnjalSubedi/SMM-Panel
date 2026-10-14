@@ -9,7 +9,7 @@ import { services } from "../lib/services";
 
 test("sitemap contains only canonical public routes", () => {
   const urls = sitemap().map(item => item.url);
-  assert.equal(urls.length, 7);
+  assert.equal(urls.length, 8);
   assert.equal(new Set(urls).size, urls.length);
   assert.ok(urls.every(url => url === siteUrl || url.startsWith(siteUrl + "/")));
   assert.ok(urls.every(url => !/account|admin|login|register|password|api|resumeOrder/.test(url)));

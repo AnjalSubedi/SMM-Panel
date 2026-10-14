@@ -7,7 +7,8 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 const productionSecurity = process.argv.includes("--production-security");
 const seo = process.argv.includes("--seo");
-const production = productionSecurity || seo;
+const productionAccounts = process.argv.includes("--production-accounts");
+const production = productionSecurity || seo || productionAccounts;
 const port = await new Promise((done, reject) => { const server = createServer(); server.on("error", reject); server.listen(0,"127.0.0.1",()=>{const address=server.address();server.close(()=>done(address.port));}); });
 const directory = await mkdtemp(join(tmpdir(), "dmnp-postgres-browser-"));
 const chromeDirectory = await mkdtemp(join(tmpdir(), "dmnp-postgres-chrome-"));
@@ -32,7 +33,7 @@ try {
   server.stdout.on("data",d=>{log+=d;});server.stderr.on("data",d=>{log+=d;});server.on("error",()=>{});
   await ready("http://localhost:3002/login",server);
   if (seo) await run(["scripts/verify-seo-http.cjs"]);
-  if (!production) await run(["scripts/verify-accounts-http.cjs"]);
+  if (!production || productionAccounts) await run(["scripts/verify-accounts-http.cjs"]);
   const chromePath=process.env.QA_CHROME_BIN || "C:/Program Files/Google/Chrome/Application/chrome.exe";
   chrome=spawn(chromePath,["--headless=new","--disable-gpu","--no-first-run","--no-default-browser-check","--remote-debugging-port=9223","--user-data-dir="+chromeDirectory,"about:blank"],{stdio:"ignore",windowsHide:true});chrome.on("error",()=>{});
   await ready("http://localhost:9223/json/version",chrome);
