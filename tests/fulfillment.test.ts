@@ -21,6 +21,7 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
   for (const user of [customer, owner]) await db.query('INSERT INTO "user"(id,name,email,"emailVerified","createdAt","updatedAt") VALUES($1,$2,$3,TRUE,NOW(),NOW())', [user.id,user.name,user.email]);
   await db.query('INSERT INTO "appWallet"("userId","balancePaisa") VALUES($1,1000000000)', [customer.id]);
   let catalog = savedProviderCatalog.map(p => ({...p}));
+  let catalogUnavailable = false;
   let addMode = "ok"; let balance = 1000000; let counter = 9000;
   const adds: URLSearchParams[] = []; const providerOrders = new Map<string,{status:string;remains:number;currency:string}>();
   globalThis.fetch = async (url, options) => {
@@ -28,7 +29,7 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     const form = new URLSearchParams(String(options?.body)); assert.equal(form.get("key"), "isolated-fake-provider-key");
     const json = (value: unknown) => new Response(JSON.stringify(value), {status:200});
     switch(form.get("action")) {
-      case "services": return json(catalog);
+      case "services": if (catalogUnavailable) throw new Error("Mock provider unavailable"); return json(catalog);
       case "balance": return json({balance:String(balance),currency:"NPR"});
       case "add": {
         adds.push(form);
@@ -58,6 +59,20 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[id]);
     await runFulfillment({orderId:id});
   }
+  await t.test("a durable lease works across connections, expires, and only its owner can renew or release it",async()=>{
+    const {claimFulfillmentLease,renewFulfillmentLease,releaseFulfillmentLease}=await import("../lib/server/fulfillment-lease");
+    const a=await db.connect(),b=await db.connect();
+    try {
+      const token=await claimFulfillmentLease(a);assert.ok(token);
+      assert.equal(await claimFulfillmentLease(b),null,"A different backend cannot start a second worker");
+      assert.equal(await renewFulfillmentLease(b,token),true,"Ownership is independent of the backend session");
+      await db.query(`UPDATE "appFulfillmentWorker" SET "leaseUntil"=NOW()-INTERVAL '1 second' WHERE id=1`);
+      const replacement=await claimFulfillmentLease(b);assert.ok(replacement);assert.notEqual(token,replacement);
+      await releaseFulfillmentLease(a,token);assert.equal(await claimFulfillmentLease(a),null,"An expired owner cannot delete its replacement's lease");
+      assert.equal(await renewFulfillmentLease(a,token),false);await releaseFulfillmentLease(b,replacement);
+      const final=await claimFulfillmentLease(a);assert.ok(final);await releaseFulfillmentLease(b,final);
+    } finally {a.release();b.release();}
+  });
   await t.test("prices use provider cost plus markup; unmapped and custom-input services cannot be bought",async()=>{
     const c = await liveRetailCatalog(); const ig=c.services.find(s=>s.id==="IG_01")!;
     assert.equal(ig.price,Math.ceil(providerCostPaisa(ig.id,1000,catalog.find(p=>p.service===ig.providerServiceId)!)*1.75)/100);
@@ -127,7 +142,22 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
   });
   await t.test("legacy queued test order is recovered without changing its paid price",async()=>{
     const id=randomUUID();await db.query(`INSERT INTO "appOrder"(id,"userId",email,"itemId","itemKind","itemName",quantity,"amountPaisa",links,method,status,"requestScope","requestKey","createdAt","updatedAt") VALUES($1,$2,$3,'FB_02','service','Facebook followers',100,1290,$4,'wallet','queued',$5,$6,$7,$7)`,[id,customer.id,customer.email,JSON.stringify([{platform:"Facebook",url:"https://facebook.com/profile-test"}]),"user:"+customer.id,randomUUID(),new Date().toISOString()]);
-    const balance=(await accountData(customer)).balancePaisa;await runFulfillment({orderId:id});assert.equal(await state(id),"submitted");assert.equal((await accountData(customer)).balancePaisa,balance);assert.equal((await jobs(id))[0].retailPaisa,1290);
+    const balance=(await accountData(customer)).balancePaisa;
+    // Reproduce the production defect: an old lock remains on another backend.
+    const legacy=await db.connect();
+    try { await legacy.query("SELECT pg_advisory_lock(hashtextextended('dmnp-suvakrio',0))");await runFulfillment({orderId:id}); }
+    finally {await legacy.query("SELECT pg_advisory_unlock(hashtextextended('dmnp-suvakrio',0))");legacy.release();}
+    assert.equal(await state(id),"submitted");assert.equal((await accountData(customer)).balancePaisa,balance);assert.equal((await jobs(id))[0].retailPaisa,1290);
+  });
+  await t.test("pre-submission catalog failure remains paid, reports the problem, releases the lease and recovers",async()=>{
+    const id=randomUUID();await db.query(`INSERT INTO "appOrder"(id,"userId",email,"itemId","itemKind","itemName",quantity,"amountPaisa",links,method,status,"requestScope","requestKey","createdAt","updatedAt") VALUES($1,$2,$3,'FB_02','service','Facebook followers',100,1290,$4,'wallet','queued',$5,$6,$7,$7)`,[id,customer.id,customer.email,JSON.stringify([{platform:"Facebook",url:"https://facebook.com/profile-test"}]),"user:"+customer.id,randomUUID(),new Date().toISOString()]);
+    const before=(await accountData(customer)).balancePaisa;const count=adds.length;await invalidate();catalogUnavailable=true;
+    await runFulfillment({orderId:id});catalogUnavailable=false;
+    assert.equal(adds.length,count);assert.equal(await state(id),"queued");assert.equal((await jobs(id)).length,0);
+    assert.match((await accountData(customer)).orders.find(o=>o.id===id)!.deliveryMessage!,/paid order is saved/);
+    assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM "appFulfillmentWorker"')).rows[0].count,0);
+    await runFulfillment({orderId:id});assert.equal(await state(id),"submitted");assert.equal(adds.length,count+1);
+    assert.equal((await accountData(customer)).balancePaisa,before);assert.equal((await accountData(customer)).orders.find(o=>o.id===id)!.deliveryMessage,"");
   });
   await t.test("stale prices and unsupported drip stop safely before taking payment or dispatching",async()=>{
     const raw=await input("IG_06",1000);const before=(await accountData(customer)).balancePaisa;

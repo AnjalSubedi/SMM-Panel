@@ -15,13 +15,13 @@ export default function FulfillmentDetails({ order, admin = false, onUpdated }: 
     } catch (issue) { setError(issue instanceof Error ? issue.message : "Unable to confirm the reference."); }
     finally { setBusy(false); }
   }
-  if (!order.fulfillment?.length) return null;
+  if (!order.fulfillment?.length) return order.deliveryMessage ? <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800">{order.deliveryMessage}</p> : null;
   const awaiting = ["awaiting_payment", "payment_rejected", "awaiting_delivery"].includes(order.status);
   return <div className="mt-3 space-y-3 border-t border-slate-100 pt-3 text-xs leading-6 text-slate-600">
     {!awaiting && <p className="font-semibold text-slate-700">Automatic delivery</p>}
     {!awaiting && order.fulfillment.map(job => <div key={job.id}>
-      {order.fulfillment!.length > 1 && <p className="font-semibold">{job.name} ? {job.quantity.toLocaleString("en-US")} units</p>}
-      {job.providerOrderId && <p>{job.providerStatus || "Accepted for delivery"}{admin && " ? Provider order #" + job.providerOrderId}</p>}
+      {order.fulfillment!.length > 1 && <p className="font-semibold">{job.name} &middot; {job.quantity.toLocaleString("en-US")} units</p>}
+      {job.providerOrderId && <p>{job.providerStatus || "Accepted for delivery"}{admin && " - Provider order #" + job.providerOrderId}</p>}
       {job.remains !== null && <p>{Math.max(0, job.quantity - job.remains).toLocaleString("en-US")} of {job.quantity.toLocaleString("en-US")} delivered</p>}
       {job.message && <p className="text-amber-800">{job.message}</p>}
       {job.refundedPaisa > 0 && <p className="text-emerald-700">{formatPrice(job.refundedPaisa / 100)} returned to your wallet.</p>}

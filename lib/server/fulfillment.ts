@@ -1,4 +1,5 @@
 import "server-only";
+import { claimFulfillmentLease, renewFulfillmentLease, releaseFulfillmentLease } from "./fulfillment-lease";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { getDb, transaction, type Database } from "./db";
@@ -67,6 +68,7 @@ async function initializeOldQueue(db: Database, scope: Scope) {
       await db.query("BEGIN");
       await db.query('SELECT id FROM "appOrder" WHERE id=$1 FOR UPDATE', [order.id]);
       await saveFulfillmentJobs(db, order.id, order.amountPaisa, steps);
+      await db.query('UPDATE "appOrder" SET "deliveryMessage"=\'\' WHERE id=$1', [order.id]);
       await audit(db, order.id, "delivery_prepared", "Existing paid order prepared for automatic delivery.");
       await db.query("COMMIT");
     } catch {
@@ -109,13 +111,11 @@ async function poll(db: Database, scope: Scope) {
 }
 export async function runFulfillment(scope: Scope = {}) {
   if (!automationEnabled() || !providerConfigured()) return;
-  const db = await getDb().connect(); let locked = false;
+  const db = await getDb().connect(); let lease: string | null = null;
   const started = Date.now();
   try {
-    // A session lock survives the commit before an external add request. It also
-    // serializes provider spending across instances without keeping a transaction open.
-    locked = (await db.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('dmnp-suvakrio',0)) AS locked")).rows[0].locked;
-    if (!locked) return;
+    lease = await claimFulfillmentLease(db);
+    if (!lease) return;
     const where = scopeWhere(scope);
     const stranded = (await db.query<Job>(`UPDATE "appFulfillment" f SET state='unknown',message='Submission was interrupted. Check the provider before retrying.',"updatedAt"=NOW() FROM "appOrder" o WHERE o.id=f."orderId" AND ${where.clause} AND f.state='submitting' AND f."leaseUntil" < NOW() RETURNING f.*`, where.values)).rows;
     for (const job of stranded) { await db.query("BEGIN"); await updateAggregate(db, job.orderId); await db.query("COMMIT"); }
@@ -123,7 +123,7 @@ export async function runFulfillment(scope: Scope = {}) {
     try { await poll(db, scope); } catch { console.error("Automatic delivery status temporarily unavailable."); }
     const jobs = (await db.query<Job>(`SELECT f.* FROM "appFulfillment" f JOIN "appOrder" o ON o.id=f."orderId" WHERE ${where.clause} AND o.status IN ('queued','submitted','submitting','processing') AND f.state='ready' AND f."nextAttemptAt"<=NOW() ORDER BY f."createdAt",f.step LIMIT 50`, where.values)).rows;
     for (const job of jobs) {
-      if (Date.now() - started > 25000) break;
+      if (Date.now() - started > 25000 || !await renewFulfillmentLease(db, lease)) break;
       const total = job.payload.quantity * job.payload.runs;
       try {
         const catalog = await providerServices();
@@ -138,7 +138,7 @@ export async function runFulfillment(scope: Scope = {}) {
         await db.query('UPDATE "appFulfillment" SET state=$1,message=$2,"nextAttemptAt"=NOW()+INTERVAL \'5 minutes\',"updatedAt"=NOW() WHERE id=$3 AND state=\'ready\'', [rejected ? "rejected" : "ready", error instanceof ProviderError ? error.message : "Automatic delivery is temporarily unavailable. Your order is saved.", job.id]);
         await updateAggregate(db, job.orderId); await db.query("COMMIT"); continue;
       }
-      if (Date.now() - started > 40000) break;
+      if (Date.now() - started > 40000 || !await renewFulfillmentLease(db, lease)) break;
       const claimed = await db.query('UPDATE "appFulfillment" f SET state=\'submitting\',message=\'\',"leaseUntil"=NOW()+INTERVAL \'2 minutes\',"updatedAt"=NOW() FROM "appOrder" o WHERE f."orderId"=o.id AND o.status IN (\'queued\',\'submitted\',\'submitting\',\'processing\') AND f.id=$1 AND f.state=\'ready\' RETURNING f.id', [job.id]);
       if (!claimed.rowCount) continue;
       await db.query("BEGIN"); await updateAggregate(db, job.orderId); await db.query("COMMIT");
@@ -164,9 +164,13 @@ export async function runFulfillment(scope: Scope = {}) {
   } catch (error) {
     await db.query("ROLLBACK").catch(() => undefined);
     // No request bodies, API keys, target links, or raw provider responses are logged.
+    const where = scopeWhere(scope, 2);
+    const message = "Automatic delivery is temporarily unavailable. Your paid order is saved and will retry; no additional payment is needed.";
+    await db.query(`UPDATE "appOrder" o SET "deliveryMessage"=$1 WHERE ${where.clause} AND o.status='queued'
+      AND NOT EXISTS(SELECT 1 FROM "appFulfillment" f WHERE f."orderId"=o.id)`, [message, ...where.values]).catch(() => undefined);
     console.error("Automatic delivery check failed:", error instanceof ProviderError ? error.code : "internal");
   } finally {
-    if (locked) await db.query("SELECT pg_advisory_unlock(hashtextextended('dmnp-suvakrio',0))").catch(() => undefined);
+    if (lease) await releaseFulfillmentLease(db, lease).catch(() => undefined);
     db.release();
   }
 }

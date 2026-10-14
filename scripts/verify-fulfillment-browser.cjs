@@ -25,6 +25,8 @@ async function main() {
   const post = (path, body) => evaluate('fetch(' + JSON.stringify(path) + ',{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(' + JSON.stringify(body) + ')}).then(async r=>({status:r.status,data:await r.json()}))');
   const screenshot = async name => { await fs.mkdir('.qa', { recursive: true }); const r = await call('Page.captureScreenshot', { format: 'png' }); await fs.writeFile('.qa/' + name + '.png', Buffer.from(r.data, 'base64')); };
   const email='fulfillment-'+randomUUID()+'@example.test',password='Isolated-Fulfillment-Password-2026!';
+  const legacyPool = new Pool({ connectionString: database.toString(), max: 1 });
+  await legacyPool.query("SELECT pg_advisory_lock(hashtextextended('dmnp-suvakrio',0))");
   const {seedQaUser}=require('./qa-user.cjs');await seedQaUser('Delivery Customer',email,password);
   const user=(await db.query('SELECT id FROM "user" WHERE email=$1',[email])).rows[0];
   await db.query('INSERT INTO "appWallet"("userId","balancePaisa") VALUES($1,100000)',[user.id]);
@@ -51,6 +53,8 @@ async function main() {
     await waitFor('document.querySelector("dialog")?.textContent.includes("Paid from your wallet")');
     const order=(await db.query('SELECT id,status,"amountPaisa" FROM "appOrder" WHERE "userId"=$1',[user.id])).rows[0];assert.ok(order);
     await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[order.id],'submitted');
+    const locks = await db.query(`SELECT COUNT(*)::int AS count FROM pg_locks WHERE locktype='advisory' AND classid=((hashtextextended('dmnp-suvakrio',0)>>32)&4294967295)::oid AND objid=(hashtextextended('dmnp-suvakrio',0)&4294967295)::oid AND granted`);
+    assert.equal(locks.rows[0].count,1,'The new worker must operate even with the stranded old session lock');
     assert.equal((await db.query('SELECT COUNT(*) AS count FROM "appLedger" WHERE "userId"=$1',[user.id])).rows[0].count,'1');
     await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
     await waitFor('!![...document.querySelectorAll("button")].find(b=>b.textContent.includes("Refresh account") && !b.disabled)');
@@ -75,6 +79,6 @@ async function main() {
     await evaluate('[...document.querySelectorAll("button[aria-pressed]")].find(b=>b.textContent.trim()==="orders").click()');
     await waitFor('document.body.textContent.includes("Automatic delivery")');assert.equal(await evaluate('document.body.textContent.includes("Mark completed")'),false);await screenshot('automatic-delivery-admin');
     assert.deepEqual(exceptions,[]);console.log('Production automatic delivery browser checks passed: live markup pricing, wallet checkout, after-response provider submission, status updates, mobile layout, protected cron, admin payment approval, and removal of manual completion controls. All provider calls mocked.');
-  } finally {await db.end();socket.close();await fetch('http://localhost:9223/json/close/'+target.id);}
+  } finally {await legacyPool.end();await db.end();socket.close();await fetch('http://localhost:9223/json/close/'+target.id);}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

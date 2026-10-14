@@ -17,6 +17,7 @@ export async function migrateDatabase() {
     await db.query(await readFile(resolve("migrations/004-security.sql"), "utf8"));
     await db.query(await readFile(resolve("migrations/005-terms.sql"), "utf8"));
     await db.query(await readFile(resolve("migrations/006-fulfillment.sql"), "utf8"));
+    await db.query(await readFile(resolve("migrations/007-fulfillment-worker.sql"), "utf8"));
     await db.query('CREATE TABLE IF NOT EXISTS "appMigration" ("id" TEXT PRIMARY KEY, "appliedAt" TEXT NOT NULL)');
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["001-commerce", new Date().toISOString()]);
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["002-notifications", new Date().toISOString()]);
@@ -24,5 +25,6 @@ export async function migrateDatabase() {
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["004-security", new Date().toISOString()]);
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["005-terms", new Date().toISOString()]);
     await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["006-fulfillment", new Date().toISOString()]);
+    await db.query('INSERT INTO "appMigration" ("id", "appliedAt") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING', ["007-fulfillment-worker", new Date().toISOString()]);
   });
 }
