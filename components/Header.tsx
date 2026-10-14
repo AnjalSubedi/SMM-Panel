@@ -16,7 +16,7 @@ export default function Header() {
           <Link href="/services#packages" className="hidden text-[13px] font-semibold text-slate-600 transition-colors hover:text-blue-600 lg:block">
             Packages
           </Link>
-          <Link href="/services#web-development" className="hidden text-[13px] font-semibold text-slate-600 transition-colors hover:text-blue-600 xl:block">
+          <Link href="/website-design" className="hidden text-[13px] font-semibold text-slate-600 transition-colors hover:text-blue-600 xl:block">
             Website design
           </Link>
           <span aria-hidden="true" className="hidden h-5 w-px bg-slate-200 xl:block" />

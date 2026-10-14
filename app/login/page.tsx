@@ -1,5 +1,6 @@
+import { privateRobots } from "../../lib/seo";
 import type { Metadata } from "next";
 import AuthPage from "../../components/AuthPage";
-export const metadata: Metadata = { title: "Sign in" };
+export const metadata: Metadata = { title: "Sign in", robots: privateRobots };
 export const dynamic = "force-dynamic";
 export default function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) { return <AuthPage mode="login" params={searchParams} />; }

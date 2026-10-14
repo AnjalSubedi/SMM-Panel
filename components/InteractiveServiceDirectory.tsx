@@ -66,10 +66,10 @@ function QuantityConfigurator({ service, onOrder, compact = false }: { service: 
   );
 }
 
-export default function InteractiveServiceDirectory({ services, onOrder, compact = false, onPrepareCheckout }: { services: CatalogItem[]; onOrder: (item: CatalogItem) => void; compact?: boolean; onPrepareCheckout?: () => void }) {
+export default function InteractiveServiceDirectory({ services, onOrder, compact = false, initialPlatform = "", onPrepareCheckout }: { services: CatalogItem[]; onOrder: (item: CatalogItem) => void; compact?: boolean; initialPlatform?: string; onPrepareCheckout?: () => void }) {
   const headingId = compact ? "dashboard-catalog-heading" : "catalog-heading";
   const configuratorId = compact ? "dashboard-configurator-heading" : "configurator-heading";
-  const [platform, setPlatform] = useState("");
+  const [platform, setPlatform] = useState(initialPlatform);
   const [category, setCategory] = useState("");
   const [serviceId, setServiceId] = useState("");
   const platforms = platformOrder.filter((name) => services.some((service) => service.platform === name));

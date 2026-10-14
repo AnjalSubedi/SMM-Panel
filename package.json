@@ -13,7 +13,9 @@
     "db:migrate": "node --conditions=react-server --import tsx scripts/setup-accounts.ts",
     "db:import-sqlite": "node --conditions=react-server --import tsx scripts/import-sqlite.ts",
     "test:browser": "node scripts/qa-postgres.mjs",
-    "test:security:production": "node scripts/qa-postgres.mjs --production-security"
+    "test:security:production": "node scripts/qa-postgres.mjs --production-security",
+    "test:seo": "node --import tsx --test scripts/seo.test.ts",
+    "test:seo:production": "node scripts/qa-postgres.mjs --seo"
   },
   "dependencies": {
     "better-auth": "^1.7.7",

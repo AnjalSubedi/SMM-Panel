@@ -36,12 +36,12 @@ function ResumeCheckout({ services, bundles, dashboard, onRestore }: { services:
   return null;
 }
 
-export default function GrowthCatalog({ services, bundles = noBundles, dashboard = false, onOrderPlaced }: { services: CatalogItem[]; bundles?: readonly CatalogItem[]; dashboard?: boolean; onOrderPlaced?: () => Promise<void> }) {
+export default function GrowthCatalog({ services, bundles = noBundles, dashboard = false, showPackages = true, initialPlatform, onOrderPlaced }: { services: CatalogItem[]; bundles?: readonly CatalogItem[]; dashboard?: boolean; showPackages?: boolean; initialPlatform?: string; onOrderPlaced?: () => Promise<void> }) {
   const [order, setOrder] = useState<CatalogItem | null>(null);
   return <>
     <Suspense fallback={null}><ResumeCheckout services={services} bundles={bundles} dashboard={dashboard} onRestore={setOrder} /></Suspense>
-    {!dashboard && <ComboPackagesGrid packages={bundles} onOrder={setOrder} onPrepareCheckout={prepareCheckout} />}
-    <InteractiveServiceDirectory services={services} onOrder={setOrder} compact={dashboard} onPrepareCheckout={prepareCheckout} />
+    {!dashboard && showPackages && <ComboPackagesGrid packages={bundles} onOrder={setOrder} onPrepareCheckout={prepareCheckout} />}
+    <InteractiveServiceDirectory services={services} onOrder={setOrder} compact={dashboard} initialPlatform={initialPlatform} onPrepareCheckout={prepareCheckout} />
     {order && <CheckoutModal item={order} onDismiss={() => setOrder(null)} returnTo={dashboard ? checkoutPaths.account : checkoutPaths.services} onOrderPlaced={onOrderPlaced} />}
   </>;
 }

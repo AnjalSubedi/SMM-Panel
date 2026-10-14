@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import AccountProvider from "../components/AccountProvider";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import { isPreview, privateRobots, siteName, siteUrl } from "../lib/seo";
 import "./globals.css";
 
 const geist = localFont({ src: "../node_modules/next/dist/next-devtools/server/font/geist-latin.woff2", variable: "--font-geist", weight: "100 900", display: "swap" });
@@ -11,7 +12,10 @@ const geistMono = localFont({ src: "../node_modules/next/dist/next-devtools/serv
 
 export const metadata: Metadata = {
   title: { default: "Digital Marketing NP", template: "%s | Digital Marketing NP" },
-  applicationName: "Digital Marketing NP",
+  applicationName: siteName,
+  metadataBase: new URL(siteUrl),
+  robots: isPreview ? privateRobots : { index: true, follow: true },
+  verification: process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : undefined,
   description: "Compare social media followers, views, likes and watch-time services. See prices in NPR and pay with eSewa or your account wallet.",
 };
 
