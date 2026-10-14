@@ -1,0 +1,82 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
+const { Pool } = require('pg');
+const base = 'http://localhost:3002';
+async function main() {
+  const database = new URL(process.env.QA_DATABASE_URL || '');
+  assert.equal(database.hostname, '127.0.0.1'); assert.equal(database.username, 'dmnp_test');
+  assert.ok(process.env.QA_MAILBOX_FILE); assert.equal(process.env.RESEND_API_KEY, 'isolated-qa-mail-key');
+  const db = new Pool({ connectionString: database.toString(), max: 1 });
+  const target = await (await fetch('http://localhost:9223/json/new?about:blank', { method: 'PUT' })).json();
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
+  let id = 0; const pending = new Map(); const exceptions = [];
+  socket.addEventListener('message', event => {
+    const message = JSON.parse(event.data);
+    if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.text);
+    if (message.id && pending.has(message.id)) { const task = pending.get(message.id); pending.delete(message.id); clearTimeout(task.timer); message.error ? task.reject(message.error) : task.resolve(message.result); }
+  });
+  const call = (method, params = {}) => new Promise((resolve, reject) => { const n = ++id; const timer = setTimeout(() => reject(new Error('CDP timeout: ' + method)), 20000); pending.set(n, { resolve, reject, timer }); socket.send(JSON.stringify({ id: n, method, params })); });
+  const evaluate = async expression => { const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, allowUnsafeEvalBlockedByCSP: false }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.text); return result.result.value; };
+  const waitFor = async expression => { for (let i = 0; i < 150; i++) { if (await evaluate('Boolean(document.body) && (' + expression + ')')) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error('Not ready: ' + expression + ' ' + await evaluate('JSON.stringify({heading:document.querySelector("h1")?.textContent,alerts:[...document.querySelectorAll("[role=alert]")].map(e=>e.textContent),buttons:[...document.querySelectorAll("form button")].map(e=>({text:e.textContent,disabled:e.disabled})),valid:document.querySelector("form")?.checkValidity()})'));  };
+  const set = async (selector, value) => { await evaluate('(()=>{const el=document.querySelector(' + JSON.stringify(selector) + ');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,' + JSON.stringify(value) + ');el.dispatchEvent(new Event("input",{bubbles:true}));})()'); await new Promise(resolve => setTimeout(resolve, 100)); };
+  const submit = async () => { await evaluate('document.querySelector("form button:not([type])").click()'); };
+  const post = (path, body) => evaluate('fetch(' + JSON.stringify(path) + ',{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(' + JSON.stringify(body) + ')}).then(async r=>({status:r.status,data:await r.json()}))');
+  const screenshot = async name => { await fs.mkdir('.qa', { recursive: true }); const r = await call('Page.captureScreenshot', { format: 'png' }); await fs.writeFile('.qa/' + name + '.png', Buffer.from(r.data, 'base64')); };
+  const legacyToken = randomUUID();
+  const email = 'browser-email-' + randomUUID() + '@example.test'; const password = 'Isolated-Email-Browser-Password-2026!';
+  const latestCode = async () => { const entries = (await fs.readFile(process.env.QA_MAILBOX_FILE, 'utf8')).trim().split('\n').map(JSON.parse); const mail = entries.filter(entry => entry.to.includes(email)).at(-1); assert.ok(mail); return mail.text.match(/code is: (\d{6})/)[1]; };
+  try {
+    await call('Runtime.enable'); await call('Page.enable'); await call('Network.enable'); await call('Network.clearBrowserCookies');
+    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await call('Page.navigate', { url: base + '/register?next=%2Fservices%23calculator' });
+    await waitFor('!!document.querySelector("#auth-name") && !document.querySelector("header .animate-pulse")');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    await set('#auth-name', 'Email Browser'); await set('#auth-email', email); await set('#auth-password', password); await submit();
+    await waitFor('!!document.querySelector("#auth-code") && !!document.querySelector("[role=status]")');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.status)'), 401, 'Unverified signup cannot access the account');
+    const userId = (await db.query('SELECT id FROM "user" WHERE email=$1', [email])).rows[0].id;
+    const now = new Date();
+    await db.query('INSERT INTO session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,$4,$5,$5)', [randomUUID(), legacyToken, userId, new Date(Date.now()+3600000), now]);
+    const { serializeSignedCookie } = await import('better-call');
+    const legacyCookie = (await serializeSignedCookie('dmnp.session_token', legacyToken, process.env.BETTER_AUTH_SECRET)).split(';')[0];
+    const legacyHeaders = { Cookie: legacyCookie };
+    assert.equal((await (await fetch(base+'/api/auth/get-session', {headers:legacyHeaders})).json()).user.emailVerified, false, 'Fixture contains a valid old unverified session');
+    assert.equal((await fetch(base+'/api/account', {headers:legacyHeaders})).status, 401, 'Old unverified sessions cannot authorize account access');
+    assert.equal((await fetch(base+'/api/account/notifications', {headers:legacyHeaders})).status, 401);
+    assert.equal((await post('/api/auth/sign-in/email', { email, password })).status, 403);
+    assert.equal(await evaluate('document.activeElement.id'), 'auth-code', 'Code input receives focus');
+    assert.equal(await evaluate('document.querySelector("#auth-code").autocomplete'), 'one-time-code');
+    assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Resend in")).disabled'), true);
+    await screenshot('email-code-desktop');
+    await call('Emulation.setDeviceMetricsOverride', { width: 375, height: 1000, deviceScaleFactor: 1, mobile: true });
+    assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Code form fits mobile');
+    await screenshot('email-code-mobile');
+    const code = await latestCode(); const wrong = code === '000000' ? '111111' : '000000';
+    await set('#auth-code', wrong); await submit(); await waitFor('document.querySelector("[role=alert]")?.textContent.includes("incorrect")');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.status)'), 401);
+    await set('#auth-code', code); await submit();
+    await waitFor('location.pathname === "/services" && location.hash === "#calculator" && !!document.querySelector("#service-platform")');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.status)'), 200, 'Verification signs in and preserves the intended destination');
+    assert.equal((await db.query('SELECT COUNT(*) AS count FROM session WHERE token=$1', [legacyToken])).rows[0].count, '0', 'Verification revokes legacy unverified sessions');
+    assert.equal((await post('/api/auth/email-code', { action: 'verify', email, password, code })).status, 409, 'Verified code cannot be reused');
+    assert.equal((await post('/api/auth/sign-out', {})).status, 200);
+    await call('Page.navigate', { url: base + '/login' }); await waitFor('!!document.querySelector("#auth-email")');
+    await set('#auth-email', email); await set('#auth-password', password); await submit();
+    await waitFor('location.pathname === "/account" && document.body.textContent.includes("Welcome, Email.")');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.status)'), 200, 'Email login works after verification');
+    await post('/api/auth/sign-out', {});
+    // Interrupted signup resumes from email login without creating a session first.
+    const pendingEmail = 'pending-' + randomUUID() + '@example.test';
+    assert.equal((await post('/api/auth/sign-up/email', { email: pendingEmail, name: 'Pending Customer', password })).status, 200);
+    await call('Page.navigate', { url: base + '/login' }); await waitFor('!!document.querySelector("#auth-email")');
+    await set('#auth-email', pendingEmail); await set('#auth-password', password); await submit();
+    await waitFor('!!document.querySelector("#auth-code") && !!document.querySelector("[role=status]")');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.status)'), 401);
+    assert.equal((await db.query('SELECT "emailVerified" FROM "user" WHERE email=$1', [pendingEmail])).rows[0].emailVerified, false);
+    assert.deepEqual(exceptions, [], 'No browser runtime exceptions');
+    console.log('Production email flow passed: signup, six-digit code focus/paste, mobile layout, blocked unverified access, wrong-code recovery, verification, destination preservation, email login and interrupted-signup recovery. All email was mocked.');
+  } finally { await db.end(); socket.close(); await fetch('http://localhost:9223/json/close/' + target.id); }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

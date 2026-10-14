@@ -23,7 +23,8 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
   const titleRef = useRef<HTMLHeadingElement>(null);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const requestKey = useRef("");
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const { data: authSession, isPending: sessionPending } = authClient.useSession();
+  const session = authSession?.user.emailVerified ? authSession : null;
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsLanguage, setTermsLanguage] = useState<TermsLanguage>("en");
   const [paymentReady, setPaymentReady] = useState(false);

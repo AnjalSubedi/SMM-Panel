@@ -16,7 +16,8 @@ export function useAccount() {
   return value;
 }
 export default function AccountProvider({ children }: { children: ReactNode }) {
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const { data: authSession, isPending: sessionPending } = authClient.useSession();
+  const session = authSession?.user.emailVerified ? authSession : null;
   const userId = session?.user.id;
   const owner = useRef(userId); owner.current = userId;
   const inFlight = useRef<{ userId: string; controller: AbortController; promise: Promise<void> } | null>(null);

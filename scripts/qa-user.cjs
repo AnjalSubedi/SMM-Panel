@@ -9,6 +9,8 @@ exports.seedQaUser = async function seedQaUser(name, email, password) {
   const db = new Pool({ connectionString: url.toString(), max: 1 });
   try {
     const { hashPassword } = await import('better-auth/crypto');
+    const existing = await db.query('SELECT id FROM "user" WHERE email=$1', [email]);
+    if (existing.rows.length) { await db.query('UPDATE "user" SET "emailVerified"=true WHERE email=$1', [email]); return; }
     const id = randomUUID(); const now = new Date();
     await db.query('INSERT INTO "user"(id,name,email,"emailVerified","createdAt","updatedAt") VALUES($1,$2,$3,true,$4,$4)', [id,name,email,now]);
     await db.query('INSERT INTO "account"(id,"accountId","providerId","userId",password,"createdAt","updatedAt") VALUES($1,$2,$3,$2,$4,$5,$5)', [randomUUID(),id,'credential',await hashPassword(password),now]);

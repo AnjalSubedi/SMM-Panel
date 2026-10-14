@@ -65,22 +65,10 @@ async function main() {
     assert.ok(await evaluate("document.querySelector('#wallet-en')?.textContent.includes('approved')"));
     const customerEmail = 'browser-' + randomUUID() + '@example.test';
     const customerPassword = randomUUID() + '-Test-Pass';
-    if (process.env.NODE_ENV === 'production') {
-      await require('./qa-user.cjs').seedQaUser('Browser Customer', customerEmail, customerPassword);
-      await go('/login', "!!document.querySelector('#auth-email')");
-    } else {
-      await go('/register', "!!document.querySelector('#auth-name')");
-      await screenshot('register'); await set('#auth-name', 'Browser Customer');
-    }
-    if (process.env.NODE_ENV === 'production') {
-      const login = await browserPost('/api/auth/sign-in/email', { email: customerEmail, password: customerPassword });
-      assert.equal(login.status, 200, 'Verified local QA identity signs in through the production API');
-      const destination = await evaluate('new URL(location.href).searchParams.get("next") || "/account"');
-      await call('Page.navigate', { url: base + destination });
-    } else {
-      await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
-      await evaluate("document.querySelector('form button:not([type])').click()");
-    }
+    await require('./qa-user.cjs').seedQaUser('Browser Customer', customerEmail, customerPassword);
+    await go('/login', "!!document.querySelector('#auth-email')");
+    await set('#auth-email', customerEmail); await set('#auth-password', customerPassword);
+    await evaluate("document.querySelector('form button:not([type])').click()");
     await waitFor("location.pathname === '/account' && document.body.textContent.includes('Welcome, Browser.')");
     await waitFor("!!document.querySelector('header') && !document.querySelector('header .animate-pulse')");
     await settle();
@@ -187,11 +175,7 @@ async function main() {
     // Only this disposable QA database is modified to simulate a verified owner.
     const ownerEmail = 'qa-owner@example.test';
     const ownerPassword = 'Isolated-Test-Owner-Password-2026!';
-    if (process.env.NODE_ENV === 'production') await require('./qa-user.cjs').seedQaUser('QA Owner', ownerEmail, ownerPassword);
-    else {
-      const registerOwner = await browserPost('/api/auth/sign-up/email', { email: ownerEmail, name: 'QA Owner', password: ownerPassword });
-      assert.ok([200, 422].includes(registerOwner.status), JSON.stringify(registerOwner));
-    }
+    await require('./qa-user.cjs').seedQaUser('QA Owner', ownerEmail, ownerPassword);
     const databaseURL = new URL(process.env.QA_DATABASE_URL || '');
     if (databaseURL.hostname !== '127.0.0.1' || databaseURL.username !== 'dmnp_test' || databaseURL.pathname !== '/dmnp_qa') throw new Error('Browser tests only modify the isolated local PostgreSQL QA database.');
     const db = new Pool({ connectionString: databaseURL.toString(), max: 1 });

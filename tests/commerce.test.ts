@@ -200,6 +200,8 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     assert.equal(safeNext("/\\evil.test"), "/account");
     assert.equal(safeNext("/?resumeOrder=1#calculator"), "/?resumeOrder=1#calculator");
     await assert.rejects(auth.api.signInEmail({ body: { email: customer.email, password: "wrong-password" } }));
+    await assert.rejects(auth.api.signInEmail({ body: { email: customer.email, password: "Long-Test-Passphrase-2026" } }), /not verified/i);
+    await db.query('UPDATE "user" SET "emailVerified" = true WHERE id = $1', [customer.id]);
     assert.ok(await auth.api.signInEmail({ body: { email: customer.email, password: "Long-Test-Passphrase-2026" } }));
   });
 });

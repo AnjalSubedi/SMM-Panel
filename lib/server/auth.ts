@@ -3,7 +3,8 @@ import { APIError } from "better-auth/api";
 import { authOrigin, trustedIpHeaders } from "./request-security";
 import { isPublicWebLink } from "../publicLinks";
 import { betterAuth } from "better-auth";
-import { createHash, randomBytes } from "node:crypto";
+import { emailOTP } from "better-auth/plugins";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { getDb } from "./db";
 
@@ -44,6 +45,10 @@ async function sendAuthEmail(settings: AuthSettings, to: string, subject: string
   if (!response.ok) throw new Error("Unable to send account email. Please try again later.");
 }
 
+export async function sendEmailVerificationCode(email: string, otp: string) {
+  await sendAuthEmail(authSettings(), email, "Verify your Digital Marketing NP email", "Your verification code is: " + otp + "\n\nThis code expires in 10 minutes. Never share it with anyone.");
+}
+
 function safeProfile(user: { name?: unknown; image?: unknown }): { name?: string; image?: string | null } {
   const fields: { name?: string; image?: string | null } = {};
   if (user.name !== undefined) {
@@ -65,6 +70,17 @@ function buildAuth(settings: AuthSettings) {
     secret: settings.secret,
     database: getDb(),
     trustedOrigins: [settings.baseURL],
+    // Codes are verified by our password-bound route. Disable alternate public
+    // verification and passwordless endpoints so they cannot bypass that check.
+    disabledPaths: ["/verify-email", "/send-verification-email", "/email-otp/send-verification-otp", "/email-otp/check-verification-otp", "/email-otp/verify-email", "/sign-in/email-otp", "/email-otp/request-password-reset", "/forget-password/email-otp", "/email-otp/reset-password", "/email-otp/request-email-change", "/email-otp/change-email"],
+    plugins: [emailOTP({
+      otpLength: 6, expiresIn: 600, allowedAttempts: 5, disableSignUp: true,
+      storeOTP: { hash: async otp => createHmac("sha256", settings.secret).update("email-code:" + otp).digest("hex") },
+      sendVerificationOTP: async ({ email, otp, type }) => {
+        if (type !== "email-verification") throw new APIError("BAD_REQUEST", { message: "Unsupported verification request." });
+        await sendAuthEmail(settings, email, "Verify your Digital Marketing NP email", "Your verification code is: " + otp + "\n\nThis code expires in 10 minutes. Never share it with anyone.");
+      },
+    })],
     // Google is used for identity only; no feature needs ongoing Google API access.
     account: { accountLinking: { enabled: true, requireLocalEmailVerified: true, allowDifferentEmails: false, allowUnlinkingAll: false }, storeAccountCookie: false },
     databaseHooks: {
@@ -85,14 +101,19 @@ function buildAuth(settings: AuthSettings) {
       disableSignUp: settings.production && !emailConfigured,
       minPasswordLength: 10,
       maxPasswordLength: 128,
-      requireEmailVerification: settings.production || emailConfigured,
+      requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
       ...(emailConfigured ? { sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => sendAuthEmail(settings, user.email, "Reset your Digital Marketing NP password", url) } : {}),
     },
     emailVerification: {
-      sendOnSignUp: emailConfigured,
-      autoSignInAfterVerification: true,
-      ...(emailConfigured ? { sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => sendAuthEmail(settings, user.email, "Verify your Digital Marketing NP email", url) } : {}),
+      // Signup creates no session. The UI then requests a code with the password
+      // it just entered, preventing another browser from adopting an unverified account.
+      sendOnSignUp: false,
+      autoSignInAfterVerification: false,
+      beforeEmailVerification: async user => {
+        // Old unverified sessions must never become valid after verification.
+        await getDb().query('DELETE FROM "session" WHERE "userId" = $1', [user.id]);
+      },
     },
     socialProviders: googleConfigured ? {
       google: { clientId: settings.googleClientId, clientSecret: settings.googleClientSecret, prompt: "select_account" },

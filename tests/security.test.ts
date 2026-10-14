@@ -74,7 +74,10 @@ test("auth profile validation, token minimization, secret rotation and rate-limi
     const auth = await getAuth(); const db = getDb(); const email = "security-" + randomUUID() + "@example.test";
     const registration = await auth.api.signUpEmail({ body: { name: "Security Customer", email, password: "Isolated-Security-Password-2026" }, returnHeaders: true });
     const userId = registration.response.user.id;
-    const cookie = registration.headers.getSetCookie().map(value => value.split(";")[0]).join("; "); const headers = new Headers({ Cookie: cookie, Origin: authOrigin() });
+    assert.equal(registration.response.token, null, "Signup cannot create an unverified session");
+    await db.query('UPDATE "user" SET "emailVerified" = true WHERE id = $1', [userId]);
+    const signedIn = await auth.api.signInEmail({ body: { email, password: "Isolated-Security-Password-2026" }, returnHeaders: true });
+    const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; "); const headers = new Headers({ Cookie: cookie, Origin: authOrigin() });
     assert.ok((await auth.api.getSession({ headers }))?.user.id);
     await assert.rejects(auth.api.updateUser({ headers, body: { name: "x".repeat(81) } }), /display name/);
     await assert.rejects(auth.api.updateUser({ headers, body: { image: "javascript:alert(1)" } }), /profile image/);

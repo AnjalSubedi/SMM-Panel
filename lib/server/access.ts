@@ -8,7 +8,7 @@ import type { AccountUser } from "../account-types";
 export async function currentUser(requestHeaders?: Headers): Promise<AccountUser | null> {
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers: requestHeaders ?? await headers(), query: { disableCookieCache: true } });
-  if (!session) return null;
+  if (!session || !session.user.emailVerified) return null;
   return { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified, isAdmin: await isAdminId(session.user.id) };
 }
 

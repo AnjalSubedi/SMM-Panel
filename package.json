@@ -16,7 +16,8 @@
     "test:security:production": "node scripts/qa-postgres.mjs --production-security",
     "test:seo": "node --import tsx --test scripts/seo.test.ts",
     "test:seo:production": "node scripts/qa-postgres.mjs --seo",
-    "test:accounts:production": "node scripts/qa-postgres.mjs --production-accounts"
+    "test:accounts:production": "node scripts/qa-postgres.mjs --production-accounts",
+    "test:email:production": "node scripts/qa-postgres.mjs --email"
   },
   "dependencies": {
     "better-auth": "^1.7.7",

@@ -33,11 +33,14 @@ async function main() {
   let signup = await request('/api/auth/sign-up/email', { email, name: 'QA Customer', password, emailVerified: true, role: 'admin' }, false);
   if (process.env.NODE_ENV === 'production') {
     assert.equal(signup.response.status, 400); assert.equal(signup.data.code, 'EMAIL_PASSWORD_SIGN_UP_DISABLED');
-    await require('./qa-user.cjs').seedQaUser('QA Customer', email, password);
-    signup = await request('/api/auth/sign-in/email', { email, password }, false);
+  } else {
+    assert.equal(signup.response.status, 200); assert.equal(signup.data.user.emailVerified, false); assert.equal(signup.data.token, null);
+    assert.equal((await request('/api/auth/sign-in/email', { email, password }, false)).response.status, 403);
   }
+  await require('./qa-user.cjs').seedQaUser('QA Customer', email, password);
+  signup = await request('/api/auth/sign-in/email', { email, password }, false);
   assert.equal(signup.response.status, 200, JSON.stringify(signup.data));
-  assert.equal(signup.data.user.emailVerified, process.env.NODE_ENV === 'production');
+  assert.equal(signup.data.user.emailVerified, true);
   cookie = signup.response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
   assert.ok(cookie.includes('session_token'));
   assert.ok(signup.response.headers.getSetCookie().filter(value=>value.includes('session_token')).every(value=>/httponly/i.test(value)&&/samesite=lax/i.test(value)));
@@ -49,7 +52,7 @@ async function main() {
   const account = await request('/api/account');
   assert.equal(account.response.status, 200);
   assert.equal(account.data.user.isAdmin, false);
-  assert.equal(account.data.user.emailVerified, process.env.NODE_ENV === 'production', 'Profile updates cannot forge verification');
+  assert.equal(account.data.user.emailVerified, true, 'Profile updates cannot forge verification');
   assert.match(account.response.headers.get('cache-control'), /private.*no-store/);
   assert.equal(account.data.balancePaisa, 0);
   assert.equal((await request('/api/admin')).response.status, 403);

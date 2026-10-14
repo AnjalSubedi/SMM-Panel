@@ -11,5 +11,5 @@ export default async function AuthPage({ mode, params }: { mode: "login" | "regi
   const auth = await getAuth();
   const googleConfigured = Boolean(auth.options.socialProviders?.google);
   const emailConfigured = Boolean(auth.options.emailAndPassword?.sendResetPassword);
-  return <AuthForm mode={mode} next={next} token={query.token} googleEnabled={googleConfigured} emailEnabled={process.env.NODE_ENV !== "production" || emailConfigured} resetEnabled={emailConfigured} initialError={query.error ? "Google sign-in could not be completed. Please try again." : undefined} />;
+  return <AuthForm mode={mode} next={next} token={query.token} googleEnabled={googleConfigured} emailEnabled={mode === "login" || emailConfigured} resetEnabled={emailConfigured} initialError={query.error ? "Google sign-in could not be completed. Please try again." : undefined} />;
 }

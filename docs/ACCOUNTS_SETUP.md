@@ -26,7 +26,7 @@ npm.cmd run dev
 
 Open `/register` to create an account, `/login` to sign in, and `/account` for the wallet and orders.
 
-Email/password accounts can be used without verification during local development while an email provider is absent. This development exception does **not** give an unverified account automatic administrator access.
+Email/password sign-up requires a six-digit email code before account access, in development and production. Configure the sender below for local signup. Existing verified accounts can still sign in when the email service is unavailable. Tests use mocked email delivery and disposable databases.
 
 ## Owner access
 
@@ -51,14 +51,14 @@ Authorized redirect URIs:
 
 ```text
 http://localhost:3000/api/auth/callback/google
-https://digitalmarketingnp.me/api/auth/callback/google
+https://www.digitalmarketingnp.me/api/auth/callback/google
 ```
 
 Authorized JavaScript origins, if requested:
 
 ```text
 http://localhost:3000
-https://digitalmarketingnp.me
+https://www.digitalmarketingnp.me
 ```
 
 Add these **server-only** values to `.env.local`:
@@ -69,7 +69,7 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 BETTER_AUTH_URL=http://localhost:3000
 ```
 
-Use `BETTER_AUTH_URL=https://digitalmarketingnp.me` on the production server. Restart development or rebuild/restart production after changing environment variables. While the Google consent screen is in testing mode, add the intended users as test users.
+Use `BETTER_AUTH_URL=https://www.digitalmarketingnp.me` on the production server. Restart development or rebuild/restart production after changing environment variables. While the Google consent screen is in testing mode, add the intended users as test users.
 
 Reference: [Better Auth Google provider](https://better-auth.com/docs/authentication/google).
 
@@ -82,7 +82,24 @@ RESEND_API_KEY=your-server-only-key
 AUTH_EMAIL_FROM="Digital Marketing NP <accounts@digitalmarketingnp.me>"
 ```
 
-In production, email registration is disabled until email delivery is configured; password sign-in requires a verified email. Google sign-in can still be used without the email provider. Recovery emails use expiring links, and a successful password reset revokes existing sessions.
+Signup collects a name, email and password, then sends a six-digit verification code. Codes expire after 10 minutes, permit at most five incorrect attempts, and can be resent after 60 seconds. Resending replaces the previous code. Verification checks both the code and the signup password, then the browser signs in and returns to the requested page. Refreshing the page clears the in-memory password; sign in again to resume verification. No passwords or codes are stored in browser storage. Codes are stored as keyed hashes. Old unverified sessions cannot access account APIs and are revoked when verification completes.
+
+Email signup stays unavailable in production until delivery is configured. Google sign-in and verified email/password sign-in continue working without a sender. Password recovery retains expiring links and revokes existing sessions after a successful reset.
+
+### Resend and Vercel setup
+
+1. Create an account at [Resend](https://resend.com), open **Domains**, and add **digitalmarketingnp.me**. A dedicated subdomain such as **mail.digitalmarketingnp.me** is also supported; the sender address must use the domain you actually verify.
+2. In Namecheap, open **Domain List ? Manage ? Advanced DNS**. Add the DNS records Resend displays, using their exact types, host names and values. Keep the existing Vercel A/CNAME and Google Search Console TXT records. If Namecheap appends your domain automatically, enter only the host portion rather than repeating the domain.
+3. Click **Verify** in Resend and wait for the domain to show **Verified**.
+4. In Resend **API Keys**, create a **Sending access** key scoped to the verified domain. Save it privately.
+5. In Vercel **digital-hub ? Environment Variables**, add **RESEND_API_KEY** as **Secret**, and **AUTH_EMAIL_FROM** as **Config** with the value **Digital Marketing NP <accounts@digitalmarketingnp.me>** (use your verified subdomain if different). Select **Production**. Add the same values to your ignored local **.env.local** for development. Never paste the key into chat or commit it.
+6. Redeploy the project. Register with an email address you control, check inbox/spam, and enter the code. Verify your account is signed in only after the code succeeds.
+
+Reference: [Resend domain verification](https://resend.com/docs/dashboard/domains/introduction), [Resend API keys](https://resend.com/docs/dashboard/api-keys/introduction).
+
+### Isolated verification checks
+
+Run **npm run test:accounts** for mocked delivery, expiry, password binding, attempts, resend cooldown, replay/concurrency, unavailable delivery, and verification-gated account access. Run **npm run build** then **npm run test:email:production** for production browser signup/code/login with a test-only email transport. Neither check sends real email or contacts the provider.
 
 Never paste OAuth secrets, authentication secrets, email API keys or provider keys into frontend code or `NEXT_PUBLIC_` variables.
 
