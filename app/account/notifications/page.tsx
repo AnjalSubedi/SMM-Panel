@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import NotificationCenter from "../../../components/NotificationCenter";
 import { requireUserPage } from "../../../lib/server/access";
+export const metadata: Metadata = { title: "Notifications" };
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export default async function NotificationsPage() {
