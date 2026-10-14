@@ -8,7 +8,9 @@ async function handle(request: Request, method: "GET" | "POST") {
     if (method === "POST") {
       const bytes = await readLimitedBody(request);
       const headers = new Headers(request.headers); headers.delete("content-length");
-      request = new Request(request, { headers, body: new Uint8Array(bytes) });
+      // Rebuild from the URL: the incoming request stream has already been consumed.
+      // Reusing that Request object is rejected by some deployment runtimes.
+      request = new Request(request.url, { method, headers, body: new Uint8Array(bytes), signal: request.signal });
     }
     const response = await toNextJsHandler(await getAuth())[method](request);
     response.headers.set("Cache-Control", "private, no-store");

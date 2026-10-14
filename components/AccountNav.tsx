@@ -36,8 +36,13 @@ export default function AccountNav() {
     items[next]?.focus();
   }
   async function signOut() {
+    if (busy) return;
     setBusy(true); setError("");
-    try { const result = await authClient.signOut(); if (result.error) throw new Error(); window.location.assign("/login"); }
+    try {
+      const result = await authClient.signOut({ fetchOptions: { timeout: 15000, retry: 0 } });
+      if (result.error || !result.data?.success) throw new Error();
+      window.location.replace("/login");
+    }
     catch { setError("Unable to sign out. Please try again."); setBusy(false); }
   }
   if (sessionPending) return <span className="h-10 w-20 animate-pulse rounded-lg bg-slate-100" aria-label="Loading account" />;
@@ -61,8 +66,10 @@ export default function AccountNav() {
     {open && <div ref={menu} id={menuId} role="menu" aria-label="Profile menu" onKeyDown={keyboard} className="absolute right-0 top-[calc(100%+0.75rem)] z-60 max-h-[calc(100dvh-7rem)] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
       <div role="presentation" className="mb-1 border-b border-slate-100 px-3 py-3"><p className="truncate text-sm font-bold text-slate-900">{session.user.name}</p><p className="mt-1 break-all text-xs leading-5 text-slate-500">{session.user.email}</p></div>
       {links.map(({ label, href, icon: Icon }) => <Link role="menuitem" tabIndex={-1} key={label} href={href} target={href.startsWith("https:") ? "_blank" : undefined} rel={href.startsWith("https:") ? "noopener noreferrer" : undefined} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:bg-blue-50 focus:text-blue-700"><Icon size={17} className="shrink-0 text-slate-400" aria-hidden="true" /><span>{label}</span>{label === "Notifications" && unread > 0 && <span className="ml-auto rounded-md bg-blue-50 px-2 py-0.5 font-mono text-xs text-blue-700">{unread}</span>}</Link>)}
-      <div role="presentation" className="mt-1 border-t border-slate-100 pt-1"><button role="menuitem" tabIndex={-1} type="button" disabled={busy} onClick={signOut} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 focus:bg-red-50 disabled:opacity-50"><LogOut size={17} aria-hidden="true" />{busy ? "Signing out..." : "Sign out"}</button></div>
-      {error && <p role="alert" className="px-3 py-2 text-xs leading-5 text-red-700">{error}</p>}
+      <div role="presentation" className="sticky bottom-0 z-10 mt-1 border-t border-slate-100 bg-white pt-1">
+        {error && <p role="alert" className="px-3 py-2 text-xs leading-5 text-red-700">{error}</p>}
+        <button role="menuitem" tabIndex={-1} type="button" disabled={busy} aria-busy={busy} onClick={signOut} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 focus:bg-red-50 disabled:opacity-50"><LogOut size={17} aria-hidden="true" />{busy ? "Signing out..." : "Sign out"}</button>
+      </div>
     </div>}
   </div>;
 }
