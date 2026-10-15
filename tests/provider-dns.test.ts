@@ -38,6 +38,7 @@ test("DNS fallback recovers the Vercel failure without weakening TLS or repeatin
       return json({Status:0,Answer:[{type:1,data:"93.184.216.34",TTL:120}]});
     };
     assert.deepEqual(await providerRequest("balance"),{balance:"252.20",currency:"NPR"});assert.equal(nativeCalls,1);assert.equal(dnsCalls,1);
+    const phases:string[]=[];await requestProviderWithPublicDns(new URLSearchParams({key:process.env.SUVAKRIO_API_KEY!,action:"balance"}).toString(),AbortSignal.timeout(15000),phase=>phases.push(phase));assert.ok(phases.includes("dns_https_request"));assert.ok(phases.includes("dns_https_response"));
     assert.equal(lastOptions!.servername,"suvakriosmm.com");assert.equal(lastOptions!.rejectUnauthorized,true);assert.equal(lastOptions!.agent,false);
     let resolved:unknown;lastOptions!.lookup!("suvakriosmm.com",{all:true},(error,address)=>{assert.equal(error,null);resolved=address;});
     assert.deepEqual(resolved,[{address:"93.184.216.34",family:4}]);assert.equal(new URLSearchParams(sentBody).get("key"),process.env.SUVAKRIO_API_KEY);

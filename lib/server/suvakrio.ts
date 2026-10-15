@@ -7,7 +7,7 @@ import { automaticRetailCatalog, type ProviderService } from "../fulfillmentCata
 import { services } from "../services";
 import { packages } from "../catalog";
 
-type ProviderDiagnostic = { action?: string; stage?: string; httpStatus?: number; networkCode?: string; currency?: string };
+type ProviderDiagnostic = { action?: string; stage?: string; httpStatus?: number; networkCode?: string; currency?: string; reason?: string };
 export class ProviderError extends Error {
   constructor(public code: "unavailable" | "rejected" | "balance" | "ambiguous", message: string, public diagnostic: ProviderDiagnostic = {}) { super(message); }
 }
@@ -38,7 +38,7 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
     try { response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal }); }
     catch (error) {
       if (safeCode(error) !== "ENOTFOUND") throw error;
-      response = await requestProviderWithPublicDns(form.toString(), signal);
+      response = await requestProviderWithPublicDns(form.toString(), signal, phase => { stage = phase; });
     }
     stage = "body";
     const reader = response.body?.getReader(); if (!reader) throw new Error("Empty provider response");
@@ -48,7 +48,7 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
     const data = new Uint8Array(length); let offset = 0; for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.length; }
     stage = "json";
     value = JSON.parse(new TextDecoder().decode(data));
-  } catch (error) { throw new ProviderError(action === "add" ? "ambiguous" : "unavailable", action === "add" ? "The provider's reply was not confirmed. Submission is paused to avoid a duplicate charge." : "The provider is temporarily unavailable. We will check again automatically.", { action, stage, httpStatus: response?.status, networkCode: safeCode(error) }); }
+  } catch (error) { throw new ProviderError(action === "add" ? "ambiguous" : "unavailable", action === "add" ? "The provider's reply was not confirmed. Submission is paused to avoid a duplicate charge." : "The provider is temporarily unavailable. We will check again automatically.", { action, stage, httpStatus: response?.status, networkCode: safeCode(error), reason: stage.startsWith("dns_") && error instanceof TypeError ? error.message.split(key).join("[REDACTED]").slice(0,150) : undefined }); }
   if (!response.ok) throw new ProviderError(action === "add" ? "ambiguous" : "unavailable", "The provider is temporarily unavailable. We will check again automatically.", { action, stage: "http", httpStatus: response.status });
   if (value && typeof value === "object" && "error" in value) {
     if (action === "add" && ("order" in value || typeof value.error !== "string" || !value.error.trim())) throw new ProviderError("ambiguous", "The provider reply is unclear. Submission is paused to prevent a duplicate charge.");
