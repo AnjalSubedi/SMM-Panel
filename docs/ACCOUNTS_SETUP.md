@@ -159,17 +159,17 @@ This runner uses a temporary local PostgreSQL cluster, localhost:3002, hidden Ch
 
 Google's external OAuth callback and real email delivery require credentials and must be verified after those are configured. eSewa approvals are manual checks against real merchant receipts; the application does not treat a typed reference as automatic payment proof.
 
-## Delivery timing after payment approval
+## Delivery timing during checkout
 
-For eligible signed-in follower services, approving direct eSewa payment changes the order to `awaiting_delivery`. A successful wallet debit does the same immediately because those funds were already approved. The customer selects Default or a gradual 1-hour to 7-day window in My orders. The account page checks pending payments and active delivery every 15 seconds while visible.
+Eligible follower services offer delivery timing before payment, with Default preselected. An information button explains gradual delivery, unchanged pricing and provider processing time. Checkout offers valid windows from 1 hour to 7 days and saves the selection when a customer signs in or adds funds.
 
-`POST /api/account/orders/delivery` requires the order owner's session and a same-origin JSON request. It only accepts `orderId` and `deliveryWindowMinutes` (0 for Default). The server computes and stores the plan, moves the already-paid order to queued, and records an audit entry without another debit. Repeated identical requests are idempotent. Different changes after confirmation require support.
+POST /api/orders accepts deliveryWindowMinutes (omitted or 0 means Default). The server validates the live service and computes the entire batch plan before creating a payment or debiting a wallet. Timing is part of the request's idempotency checks. Wallet orders immediately enter queued; direct eSewa orders enter queued after payment approval. Guests can choose supported gradual timing too. No second confirmation in My orders is required.
 
-The plan uses whole, equal batches, each at least the verified service minimum, with the first and final dispatch separated by the requested window. For 100 followers on a service with minimum 10, one hour can be 5 batches of 20 every 15 minutes. A service with minimum 100 cannot drip-feed a 100-unit order. Fixed packages, unmatched services, non-follower services and guest orders retain default delivery.
+The plan uses whole, equal batches, each at least the verified service minimum, with the first and final dispatch separated by the requested window. For 100 followers on a service with minimum 10, one hour can be 5 batches of 20 every 15 minutes. A service with minimum 100 cannot split a 100-unit order. Bundles, unmatched services and non-follower services use default delivery. Explicitly unsupported provider drip-feed is excluded and rejected before charging.
 
-Suvakrio receives the per-run quantity, runs and interval automatically. Its native drip-feed continues after the customer closes the browser. A provider that explicitly disables drip-feed rejects the timing choice before dispatch; the customer can choose default delivery. The selected timeframe starts with the first batch dispatch and is not a guaranteed completion deadline.
+Suvakrio receives the per-run quantity, runs and interval automatically. Its native drip-feed continues after the customer closes the browser. The selected timeframe starts with the first batch dispatch and is not a guaranteed completion deadline. The account page checks pending payments and active delivery every 15 seconds while visible.
 
-Explicit PostgreSQL migrations add delivery columns idempotently and preserve existing orders, statuses and amounts. Tests use disposable PostgreSQL databases and never call the provider API.
+POST /api/account/orders/delivery remains available to the order owner for older already-paid orders in awaiting_delivery. It computes and saves their choice without another debit. New orders do not enter that state. Existing submitted orders and saved delivery plans remain unchanged. Tests use disposable PostgreSQL databases and mocked provider calls.
 
 ## Signed-in navigation and notifications
 

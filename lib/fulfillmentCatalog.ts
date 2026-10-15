@@ -47,7 +47,7 @@ export function automaticRetailCatalog(providers: readonly ProviderService[], ma
     const provider = providers.find(p => p.service === item.providerServiceId);
     const available = Boolean(item.quantityLimitsVerified && usable(provider));
     const cost = provider ? providerCostPaisa(item.id, configured.unitSize, provider) : 0;
-    return { ...item, name: customerItemName(item.id, item.name), price: available ? Math.ceil(cost * (1 + markup / 100)) / 100 : item.price, automaticDeliveryAvailable: available };
+    return { ...item, name: customerItemName(item.id, item.name), price: available ? Math.ceil(cost * (1 + markup / 100)) / 100 : item.price, automaticDeliveryAvailable: available, gradualDeliveryAvailable: available && provider?.dripfeed !== false };
   });
   const packages: CatalogItem[] = COMBO_PACKAGES.map((bundle, index) => {
     let cost = 0; let available = true;

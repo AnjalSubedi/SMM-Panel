@@ -155,6 +155,9 @@ async function main() {
     assert.equal(await evaluate("document.querySelector('dialog form button:not([type])').disabled"), true);
     await screenshot('wallet-insufficient');
     await click('Pay directly with eSewa');
+    await evaluate('document.querySelector("[data-delivery-timing] button").click()');
+    assert.match(await evaluate('document.querySelector("[data-delivery-timing]").textContent'), /total quantity and price stay the same/);
+    await evaluate('(()=>{const el=document.querySelector("[data-delivery-timing] select");el.value="60";el.dispatchEvent(new Event("change",{bubbles:true}));})()');
     const directReference = ('BROWSER-ORDER-' + randomUUID()).toUpperCase();
     await set('#public-url-0', 'https://facebook.com/browser-example');
     assert.equal(await evaluate("!!document.querySelector('#transaction-code')"), false, 'Order payment stays hidden before acceptance');
@@ -194,17 +197,9 @@ async function main() {
     assert.equal(customerLogin.status, 200);
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')");
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 50000);
-    await waitFor(`!!document.querySelector('[data-delivery-order="${directId}"]')`);
-    await screenshot('delivery-choice');
-    await evaluate(`[...document.querySelector('[data-delivery-order="${directId}"]').querySelectorAll('label')].find(l=>l.textContent.includes('Gradual delivery')).querySelector('input').click()`); await settle();
-    assert.match(await evaluate(`document.querySelector('[data-delivery-order="${directId}"]').textContent`), /5 batches of 250, every 15 minutes/);
-    await call('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true }); await settle();
-    assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'), 'Delivery chooser fits a 320px viewport');
-    await screenshot('delivery-choice-mobile');
-    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false }); await settle();
-    await click('Confirm gradual delivery');
-    await waitFor(`!document.querySelector('[data-delivery-order="${directId}"]') && document.body.textContent.includes('Spread over 1 hour')`);
-    assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 50000, 'Choosing a timeframe does not charge the wallet');
+    assert.equal(await evaluate('!!document.querySelector("[data-delivery-order]")'), false, 'No extra timing confirmation after payment');
+    assert.equal(await evaluate('fetch("/api/account").then(r=>r.json()).then(d=>d.orders.find(o=>o.id===' + JSON.stringify(directId) + ').deliveryWindowMinutes)'), 60);
+    await waitFor('document.body.textContent.includes("Spread over 1 hour")');
     await go('/account#new-order', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet');
     await waitFor("document.querySelector('dialog').textContent.includes('NPR 500')");
@@ -215,16 +210,14 @@ async function main() {
     await waitFor("document.querySelector('dialog form button:not([type])').textContent.includes('from wallet')");
     await evaluate("document.querySelector('dialog form button:not([type])').click()");
     await waitFor("document.querySelector('dialog')?.textContent.includes('Paid from your wallet')");
-    await waitFor("document.querySelector('main').textContent.includes('NPR 313.75') && !!document.querySelector('[data-delivery-order]')");
+    await waitFor("document.querySelector('main').textContent.includes('NPR 313.75') && !document.querySelector('[data-delivery-order]')");
     assert.equal(await evaluate('location.pathname'), '/account', 'Wallet checkout refreshes the dashboard without navigation');
     await screenshot('dashboard-wallet-success');
     await evaluate("document.querySelector('dialog button[aria-label=\"Close checkout\"]').click()");await waitFor("!document.querySelector('dialog')?.open");
     await evaluate("document.querySelector('#new-order').scrollIntoView({behavior:'instant'})");await settle();await screenshot('dashboard-order-desktop');
     assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 31375);
-    await go('/account', "document.body.textContent.includes('Payment confirmed. Choose delivery.')");
-    await click('Confirm default delivery');
-    await waitFor("!document.querySelector('[data-delivery-order]')");
-    assert.equal(await evaluate("fetch('/api/account').then(r=>r.json()).then(d=>d.balancePaisa)"), 31375, 'Default choice also never debits again');
+    assert.equal(await evaluate('!!document.querySelector("[data-delivery-order]")'), false, 'Wallet payment queues the order immediately');
+
 
 
     await go('/account', "document.body.textContent.includes('Welcome, Browser.')"); await evaluate("document.querySelector('button[aria-haspopup=menu]').click()"); await waitFor("!!document.querySelector('[role=menu]')"); await click('Sign out');
@@ -232,6 +225,7 @@ async function main() {
     await waitFor("!document.querySelector('header .animate-pulse')");
     await go('/services#calculator', "!!document.querySelector('#service-platform')");
     await selectService(1250); await click('Use account wallet'); await set('#public-url-0', 'https://facebook.com/saved-draft');
+    await evaluate('(()=>{const el=document.querySelector("[data-delivery-timing] select");el.value="60";el.dispatchEvent(new Event("change",{bubbles:true}));})()');
     await evaluate("[...document.querySelectorAll('dialog a')].find(a=>a.getAttribute('href').startsWith('/login?')).click()");
     await waitFor("location.pathname === '/login' && !!document.querySelector('#auth-email')");
     await waitFor("!document.querySelector('header .animate-pulse')");
@@ -247,6 +241,7 @@ async function main() {
     }
     await waitFor("location.pathname === '/services' && document.querySelector('dialog')?.open");
     assert.equal(await evaluate("document.querySelector('#public-url-0').value"), 'https://facebook.com/saved-draft');
+    assert.equal(await evaluate('document.querySelector("[data-delivery-timing] select").value'), '60', 'Timing choice survives sign-in');
     assert.equal(await evaluate("document.querySelector('#order-terms-acceptance').checked"), false, 'Resumed checkout requires fresh acceptance');
     assert.match(await evaluate("document.querySelector('dialog').textContent"), /186.25/);
     assert.equal(await evaluate("document.querySelector('#payment-tab-wallet').getAttribute('aria-selected')"), 'true');

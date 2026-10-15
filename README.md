@@ -24,9 +24,9 @@ See [the account setup guide](docs/ACCOUNTS_SETUP.md) for Google OAuth, email ve
 - Deposits and directly paid orders require admin verification against eSewa receipts.
 - Wallet debits are atomic and prices are calculated on the server.
 - Google login activates after OAuth credentials are supplied. Production email access and recovery require the configured email sender.
-- Eligible signed-in follower orders unlock delivery selection after payment approval (or a successful wallet debit). Customers choose default speed or a 1-hour to 7-day gradual window in My orders, then the order enters the delivery queue. Timing selection never charges again.
-- Gradual delivery uses equal batches that satisfy provider minimums. Orders too small to split retain default delivery. Bundles, unmatched services and guest orders use default timing.
-- Automatic provider fulfillment is not connected. Admins configure the saved batch quantity, runs and interval with the provider, record its reference, and confirm the schedule before marking a timed order processing. The window describes batch dispatch spacing; provider processing can extend completion.
+- Eligible follower orders choose default or gradual delivery during checkout, before payment. The selection is saved with the order; paid wallet orders queue immediately and direct eSewa orders queue after payment approval. No extra timing confirmation is needed afterward.
+- Gradual delivery uses equal batches that satisfy provider minimums. Unsupported services and orders too small to split use default delivery. Guest checkout supports eligible gradual delivery too.
+- Automatic fulfillment sends confirmed paid orders and their saved timing to Suvakrio. Native gradual delivery uses per-run quantities, runs and intervals; the window describes batch dispatch spacing, and provider processing can extend completion.
 
 `config/catalogData.js` remains unchanged, including all 58 services, prices and combo packages. `config/serviceQuantityMappings.json` maps 41 standalone services to equivalents from Suvakrio’s public service list for quantity limits. The 17 services without a clear equivalent retain their configured limits and display a confirmation notice. Variable quantities start at 10 or the provider minimum, whichever is higher; existing retail caps and fixed packages are preserved.
 

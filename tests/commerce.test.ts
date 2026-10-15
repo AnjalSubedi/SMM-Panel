@@ -66,7 +66,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     const retry = (await createOrder(input, customer));
     assert.equal(first.id, retry.id);
     assert.equal(first.amountPaisa, 18625);
-    assert.equal(first.status, "awaiting_delivery");
+    assert.equal(first.status, "queued");
     (await chooseDelivery({ orderId: first.id, deliveryWindowMinutes: 0 }, customer));
     assert.equal(Object.getPrototypeOf((await accountData(customer)).orders[0]), Object.prototype);
     assert.equal((await accountData(customer)).balancePaisa, 31375);
@@ -95,7 +95,7 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     assert.equal((await createOrder(input, customer)).id, direct.id);
     const claim = (await accountData(customer)).payments.find((entry) => entry.orderId === direct.id)!;
     (await reviewPayment({ paymentId: claim.id, decision: "approve", confirmedReceived: true, note: "Verified direct payment" }, owner.id));
-    assert.equal((await accountData(customer)).orders.find((entry) => entry.id === direct.id)!.status, "awaiting_delivery");
+    assert.equal((await accountData(customer)).orders.find((entry) => entry.id === direct.id)!.status, "queued");
     assert.equal((await accountData(customer)).balancePaisa, 12750);
   });
 
@@ -130,43 +130,49 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     await assert.rejects(async () => (await createOrder({ ...order(), itemId: "SUV_1731" }, customer)), /does not exist/, "The storefront keeps its existing service IDs");
   });
 
-  await t.test("paid customers choose timing after approval without a second charge", async () => {
-    const input = { ...order(), itemId: "FB_03", quantity: 100, method: "direct", reference: "TIMED-DIRECT-001" };
-    const direct = (await createOrder(input, customer));
+  await t.test("delivery timing is validated and saved before payment, then dispatch needs no second choice", async () => {
+    const input = { ...order(), itemId: "FB_03", quantity: 100, deliveryWindowMinutes: 60, method: "direct", reference: "TIMED-DIRECT-001" };
+    const direct = await createOrder(input, customer);
     const choice = { orderId: direct.id, deliveryWindowMinutes: 60 };
-    await assert.rejects(async () => (await chooseDelivery(choice, customer)), /approved/, "Pending payments cannot choose timing");
-    await assert.rejects(async () => (await chooseDelivery(choice, outsider)), /not found/, "Only the owner may configure delivery");
-    const payment = (await accountData(customer)).payments.find((entry) => entry.orderId === direct.id)!;
-    (await reviewPayment({ paymentId: payment.id, decision: "approve", confirmedReceived: true, note: "Simulated payment approved" }, owner.id));
-    assert.equal((await accountData(customer)).orders.find((entry) => entry.id === direct.id)!.status, "awaiting_delivery");
-    await assert.rejects(async () => (await updateOrderStatus({ orderId: direct.id, status: "processing", note: "Start" }, owner.id)), /Only paid/, "Admin cannot dispatch before the customer's choice");
-    const before = (await accountData(customer));
-    assert.equal((await chooseDelivery(choice, customer)).status, "queued");
-    const saved = (await accountData(customer)).orders.find((entry) => entry.id === direct.id)!;
-    assert.equal(saved.deliveryWindowMinutes, 60);
-    assert.deepEqual(JSON.parse(saved.deliveryPlan!), { version: 1, durationMinutes: 60, providerServiceId: 1768, totalQuantity: 100, runs: 5, quantityPerRun: 20, intervalMinutes: 15 });
-    assert.equal((await chooseDelivery(choice, customer)).id, direct.id, "Retry is idempotent");
+    const pending = (await accountData(customer)).orders.find(entry => entry.id === direct.id)!;
+    assert.equal(pending.status, "awaiting_payment");
+    assert.equal(pending.deliveryWindowMinutes, 60);
+    assert.deepEqual(JSON.parse(pending.deliveryPlan!), { version: 1, durationMinutes: 60, providerServiceId: 1768, totalQuantity: 100, runs: 5, quantityPerRun: 20, intervalMinutes: 15 });
+    await assert.rejects(chooseDelivery(choice, outsider), /not found/);
+    const before = await accountData(customer);
+    const payment = before.payments.find(entry => entry.orderId === direct.id)!;
+    await reviewPayment({ paymentId: payment.id, decision: "approve", confirmedReceived: true, note: "Simulated payment approved" }, owner.id);
+    assert.equal((await accountData(customer)).orders.find(entry => entry.id === direct.id)!.status, "queued");
     assert.equal((await accountData(customer)).balancePaisa, before.balancePaisa);
-    assert.equal((await accountData(customer)).ledger.length, before.ledger.length);
-    await assert.rejects(async () => (await chooseDelivery({ ...choice, deliveryWindowMinutes: 120 }, customer)), /already confirmed/);
-    await assert.rejects(async () => (await updateOrderStatus({ orderId: direct.id, status: "processing", note: "Start" }, owner.id)), /Confirm/, "Admin must confirm the provider schedule");
-    (await updateOrderStatus({ orderId: direct.id, status: "processing", note: "Mock provider schedule configured", scheduleConfirmed: true }, owner.id));
+    assert.equal((await createOrder(input, customer)).id, direct.id);
+    await assert.rejects(createOrder({ ...input, deliveryWindowMinutes: 120 }, customer), /different order/);
+    await assert.rejects(updateOrderStatus({ orderId: direct.id, status: "processing", note: "Start" }, owner.id), /Confirm/);
+    await updateOrderStatus({ orderId: direct.id, status: "processing", note: "Mock provider schedule configured", scheduleConfirmed: true }, owner.id);
 
-    const funded = (await createOrder({ ...order(), itemId: "FB_03", quantity: 100 }, outsider));
-    assert.equal(funded.status, "awaiting_delivery");
+    const funded = await createOrder({ ...order(), itemId: "FB_03", quantity: 100, deliveryWindowMinutes: 60 }, outsider);
+    assert.equal(funded.status, "queued");
     const paidBalance = (await accountData(outsider)).balancePaisa;
-    (await chooseDelivery({ orderId: funded.id, deliveryWindowMinutes: 60 }, outsider));
-    assert.equal((await accountData(outsider)).balancePaisa, paidBalance, "Wallet payment happens once, before selecting timing");
+    assert.equal((await chooseDelivery({ orderId: funded.id, deliveryWindowMinutes: 60 }, outsider)).id, funded.id);
+    assert.equal((await accountData(outsider)).balancePaisa, paidBalance);
+    const count = (await accountData(outsider)).orders.length;
+    await assert.rejects(createOrder({ ...order(), quantity: 100, deliveryWindowMinutes: 60 }, outsider), /at least 200/);
+    await assert.rejects(createOrder({ ...order(), deliveryWindowMinutes: 30 }, outsider));
+    await assert.rejects(createOrder({ ...order(), deliveryWindowMinutes: 0, runs: 100 }, outsider), /Unrecognized/);
+    assert.equal((await accountData(outsider)).orders.length, count);
+    assert.equal((await accountData(outsider)).balancePaisa, paidBalance, "Invalid timing never charges the wallet");
+    const tooSmall = await createOrder({ ...order(), quantity: 100 }, outsider);
+    assert.equal(tooSmall.status, "queued", "Default timing never creates a post-payment hold");
+    const guest = await createOrder({ ...input, email: "guest-timing@example.test", reference: "TIMED-GUEST-001", requestKey: randomUUID() }, null);
+    const guestPayment = (await adminData(owner.id)).payments.find(entry => entry.orderId === guest.id)!;
+    await reviewPayment({ paymentId: guestPayment.id, decision: "approve", confirmedReceived: true, note: "Simulated guest payment" }, owner.id);
+    const savedGuest = (await adminData(owner.id)).orders.find(entry => entry.id === guest.id)!;
+    assert.equal(savedGuest.status, "queued"); assert.equal(savedGuest.deliveryWindowMinutes, 60);
 
-    const tooSmall = (await createOrder({ ...order(), quantity: 100 }, outsider));
-    await assert.rejects(async () => (await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 60 }, outsider)), /at least 200/);
-    assert.equal((await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 0 }, outsider)).status, "queued");
-    await assert.rejects(async () => (await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 30 }, outsider)));
-    await assert.rejects(async () => (await chooseDelivery({ orderId: tooSmall.id, deliveryWindowMinutes: 0, runs: 100 }, outsider)), /Unrecognized/);
-    const guest = (await createOrder({ ...termsAcceptance(), ...input, email: "guest-timing@example.test", reference: "TIMED-GUEST-001", requestKey: randomUUID() }, null));
-    const guestPayment = (await adminData(owner.id)).payments.find((entry) => entry.orderId === guest.id)!;
-    (await reviewPayment({ paymentId: guestPayment.id, decision: "approve", confirmedReceived: true, note: "Simulated guest payment" }, owner.id));
-    assert.equal((await adminData(owner.id)).orders.find((entry) => entry.id === guest.id)!.status, "queued", "Guest retains original default delivery");
+    // Existing paid orders from the previous flow can still finish their choice.
+    await db.query('UPDATE "appOrder" SET status=$1,"deliveryWindowMinutes"=0,"deliveryPlan"=NULL WHERE id=$2', ["awaiting_delivery", funded.id]);
+    const legacyBalance = (await accountData(outsider)).balancePaisa;
+    assert.equal((await chooseDelivery({ orderId: funded.id, deliveryWindowMinutes: 60 }, outsider)).status, "queued");
+    assert.equal((await accountData(outsider)).balancePaisa, legacyBalance);
   });
 
   await t.test("PostgreSQL locks prevent duplicate concurrent approvals, debits and schedule changes", async () => {
@@ -183,9 +189,9 @@ test("wallet, direct payment, admin and identity invariants", async (t) => {
     const reference = { amount: 100, reference: "CONCURRENT-SAME-REFERENCE" };
     const claims = await Promise.allSettled([requestTopup({ ...termsAcceptance(), ...reference, requestKey: randomUUID() }, concurrent), requestTopup({ ...termsAcceptance(), ...reference, requestKey: randomUUID() }, outsider)]);
     assert.equal(claims.filter((entry) => entry.status === "fulfilled").length, 1);
-    const follower = await createOrder({ ...order(), itemId: "FB_03", quantity: 100 }, concurrent);
-    const choices = await Promise.allSettled([chooseDelivery({ orderId: follower.id, deliveryWindowMinutes: 0 }, concurrent), chooseDelivery({ orderId: follower.id, deliveryWindowMinutes: 60 }, concurrent)]);
-    assert.equal(choices.filter((entry) => entry.status === "fulfilled").length, 1);
+    const follower = { ...order(), itemId: "FB_03", quantity: 100 };
+    const choices = await Promise.allSettled([createOrder({ ...follower, deliveryWindowMinutes: 0 }, concurrent), createOrder({ ...follower, deliveryWindowMinutes: 60 }, concurrent)]);
+    assert.equal(choices.filter(entry => entry.status === "fulfilled").length, 1, "Different schedules cannot reuse a payment request key");
     assert.equal((await accountData(concurrent)).balancePaisa, 7720);
   });
 

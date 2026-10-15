@@ -114,13 +114,13 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     await checkStatus(paid,"In progress",500);assert.equal(await state(paid),"processing");
     await checkStatus(paid,"Completed",0);assert.equal(await state(paid),"completed");
   });
-  await t.test("direct payment and timing gate dispatch; native drip uses per-run quantities",async()=>{
-    const order=await createOrder(await input("FB_03",100,"direct"),customer);const count=adds.length;
+  await t.test("checkout timing is saved before payment; approval dispatches native drip without another step",async()=>{
+    const order=await createOrder({...await input("FB_03",100,"direct"),deliveryWindowMinutes:60},customer);const count=adds.length;
     await runFulfillment({orderId:order.id});assert.equal(adds.length,count);
     const payment=(await db.query('SELECT id FROM "appPayment" WHERE "orderId"=$1',[order.id])).rows[0];
     await reviewPayment({paymentId:payment.id,decision:"approve",confirmedReceived:true,note:"Verified amount and reference"},owner.id);
-    assert.equal(await state(order.id),"awaiting_delivery");await runFulfillment({orderId:order.id});assert.equal(adds.length,count);
-    await chooseDelivery({orderId:order.id,deliveryWindowMinutes:60},customer);await runFulfillment({orderId:order.id});
+    assert.equal(await state(order.id),"queued");assert.equal((await jobs(order.id))[0].payload.runs,5);
+    await runFulfillment({orderId:order.id});assert.equal(adds.length,count+1);
     const form=adds.at(-1)!;assert.equal(form.get("service"),"1768");assert.equal(Number(form.get("quantity"))*Number(form.get("runs")),100);assert.ok(Number(form.get("runs"))>1);
     assert.equal((Number(form.get("runs"))-1)*Number(form.get("interval")),60);
   });
@@ -174,8 +174,10 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
   await t.test("stale prices and unsupported drip stop safely before taking payment or dispatching",async()=>{
     const raw=await input("IG_06",1000);const before=(await accountData(customer)).balancePaisa;
     catalog=catalog.map(p=>p.service===1688?{...p,rate:p.rate*2}:p);await invalidate();await assert.rejects(createOrder(raw,customer),/price has updated/);assert.equal((await accountData(customer)).balancePaisa,before);
-    const timed=await createOrder(await input("FB_03",100),customer);catalog=catalog.map(p=>p.service===1768?{...p,dripfeed:false}:p);await invalidate();
-    await assert.rejects(chooseDelivery({orderId:timed.id,deliveryWindowMinutes:60},customer),/Timed delivery is unavailable/);assert.equal(await state(timed.id),"awaiting_delivery");
+    catalog=catalog.map(p=>p.service===1768?{...p,dripfeed:false}:p);await invalidate();
+    const balanceBefore=(await accountData(customer)).balancePaisa;
+    await assert.rejects(createOrder({...await input("FB_03",100),deliveryWindowMinutes:60},customer),/Gradual delivery is not available/);
+    assert.equal((await accountData(customer)).balancePaisa,balanceBefore,"Unsupported timing is rejected before charging");
   });
   await t.test("interrupted submissions and missing provider references pause without resubmission",async()=>{
     const interrupted=await createOrder(await input(),customer);const count=adds.length;

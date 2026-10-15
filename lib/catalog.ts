@@ -12,6 +12,7 @@ export type CatalogItem = {
   quantityLimitsVerified?: boolean;
   quantityPerProviderUnit?: number;
   automaticDeliveryAvailable?: boolean;
+  gradualDeliveryAvailable?: boolean;
   name: string;
   price: number;
   quantity?: string;

@@ -4,7 +4,7 @@ import { getServiceCategory } from "./serviceCategories";
 export type DeliveryPlan = { version: 1; durationMinutes: number; providerServiceId: number; totalQuantity: number; runs: number; quantityPerRun: number; intervalMinutes: number };
 
 export function supportsGradualDelivery(service: CatalogItem): boolean {
-  return service.kind === "service" && service.quantityLimitsVerified === true && Boolean(service.providerServiceId) &&
+  return service.gradualDeliveryAvailable !== false && service.kind === "service" && service.quantityLimitsVerified === true && Boolean(service.providerServiceId) &&
     service.quantityPerProviderUnit === 1 && (service.min ?? 1) < (service.max ?? 1) &&
     getServiceCategory(service) === "Followers & subscribers";
 }

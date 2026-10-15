@@ -68,6 +68,38 @@ async function main() {
     const providerAdds=(await fs.readFile(process.env.QA_PROVIDER_FILE,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(providerAdds.length,1);assert.equal(providerAdds[0].service,'1688');assert.equal(providerAdds[0].quantity,'1000');
     assert.equal((await evaluate('fetch("/api/cron/fulfillment").then(r=>r.status)')),401);
     assert.equal((await post('/api/admin/fulfillment',{orderId:order.id,jobId:randomUUID(),providerOrderId:'10001'})).status,403);
+    // A follower order chooses timing in checkout and dispatches after one debit.
+    await select('#service-platform','Facebook');
+    const followerCategory=await evaluate('[...document.querySelector("#service-category").options].find(o=>/Followers/.test(o.textContent)).value');
+    await select('#service-category',followerCategory);await select('#service-boost','FB_03');await set('#quantity','100');
+    await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Review your order")).click()');
+    await waitFor('!!document.querySelector("dialog[open] [data-delivery-timing] select")');
+    assert.equal(await evaluate('document.querySelector("[data-delivery-timing] select").value'),'0');
+    await evaluate('document.querySelector("[data-delivery-timing] button").click()');
+    assert.equal(await evaluate('document.querySelector("[data-delivery-timing] button").getAttribute("aria-expanded")'),'true');
+    await select('[data-delivery-timing] select','60');
+    assert.match(await evaluate('document.querySelector("[data-delivery-timing]").textContent'),/5 groups of 20/);
+    await call('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
+    assert.equal(await evaluate('document.querySelector("dialog").scrollWidth <= document.querySelector("dialog").clientWidth'),true);
+    await evaluate('document.querySelector("[data-delivery-timing]").scrollIntoView({block:"center"})');await screenshot('checkout-delivery-timing-mobile');
+    await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await set('#public-url-0','https://facebook.com/timed-profile');
+    await evaluate('document.querySelector("#payment-tab-wallet").click()');await evaluate('document.querySelector("#order-terms-acceptance").click()');
+    const beforeTimed=(await db.query('SELECT "balancePaisa" FROM "appWallet" WHERE "userId"=$1',[user.id])).rows[0].balancePaisa;
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Review wallet payment")).click()');
+    await waitFor('!![...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet") && !b.disabled)');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'),/Spread over 1 hour/);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet") && !b.disabled).click()');
+    await waitFor('document.querySelector("dialog")?.textContent.includes("Paid from your wallet")');
+    const timed=(await db.query('SELECT id,"amountPaisa","deliveryWindowMinutes","deliveryPlan" FROM "appOrder" WHERE "userId"=$1 AND "itemId"=$2',[user.id,'FB_03'])).rows[0];
+    assert.equal(timed.deliveryWindowMinutes,60);assert.equal(JSON.parse(timed.deliveryPlan).runs,5);
+    await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[timed.id],'submitted');
+    const timedPayload=(await db.query('SELECT payload FROM "appFulfillment" WHERE "orderId"=$1',[timed.id])).rows[0].payload;
+    assert.equal(timedPayload.quantity,20);assert.equal(timedPayload.runs,5);assert.equal(timedPayload.interval,15);
+    assert.equal(Number((await db.query('SELECT COUNT(*) AS count FROM "appLedger" WHERE "sourceId"=$1',[timed.id])).rows[0].count),1);
+    assert.equal(Number((await db.query('SELECT "balancePaisa" FROM "appWallet" WHERE "userId"=$1',[user.id])).rows[0].balancePaisa),Number(beforeTimed)-Number(timed.amountPaisa));
+    assert.equal(await evaluate('!!document.querySelector("[data-delivery-order]")'),false);
+    await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
     // Direct payments never dispatch without approval; admins submit automatically after receipt review.
     const guest=await post('/api/orders',{itemId:'IG_06',quantity:1000,expectedAmountPaisa:Number(order.amountPaisa),links:[{platform:'Instagram',url:'https://instagram.com/reel/test-guest'}],method:'direct',requestKey:randomUUID(),reference:'QA-'+randomUUID(),termsAccepted:true,termsVersion:'2026-10-14',termsLanguage:'en'});
     assert.equal(guest.status,201,JSON.stringify(guest.data));assert.equal(guest.data.status,'awaiting_payment');

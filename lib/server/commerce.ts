@@ -30,6 +30,7 @@ export const orderSchema = z.object({
   email: z.string().trim().email().max(254).optional(),
   reference: referenceSchema.optional(),
   expectedAmountPaisa: z.number().int().positive().optional(),
+  deliveryWindowMinutes: z.number().int().refine(minutes => minutes === 0 || (minutes >= 60 && minutes <= 10080), "Choose default delivery or a timeframe from 1 hour to 7 days.").default(0),
   requestKey: z.string().uuid("Refresh the page and try again."),
 }).strict();
 export type OrderInput = z.infer<typeof orderSchema>;
@@ -108,15 +109,18 @@ export async function createOrder(raw: unknown, user: AccountUser | null) {
   if (replay) {
     const payment = await one<{ reference: string }>(getDb(), 'SELECT reference FROM "appPayment" WHERE "orderId"=$1', [replay.id]);
     const oldLinks = JSON.parse(replay.links) as PublicLink[];
-    if (replay.itemId !== input.itemId || replay.quantity !== input.quantity || replay.method !== input.method || oldLinks.length !== input.links.length || oldLinks.some(old => !input.links.some(link => link.platform === old.platform && link.target === old.target && link.url === old.url)) || (input.method === "direct" && payment?.reference !== input.reference)) throw new AppError("This request key was already used for a different order.", 409);
+    if (replay.itemId !== input.itemId || replay.quantity !== input.quantity || replay.method !== input.method || replay.deliveryWindowMinutes !== input.deliveryWindowMinutes || oldLinks.length !== input.links.length || oldLinks.some(old => !input.links.some(link => link.platform === old.platform && link.target === old.target && link.url === old.url)) || (input.method === "direct" && payment?.reference !== input.reference)) throw new AppError("This request key was already used for a different order.", 409);
     return result(replay);
   }
   let currentCatalog;
   try { currentCatalog = await liveRetailCatalog(); } catch { throw new AppError("Automatic delivery is temporarily unavailable. No order or wallet charge has been created.", 503); }
   const priced = quote(input, currentCatalog);
+  let plan;
+  try { plan = planDelivery(priced.item, priced.quantity, input.deliveryWindowMinutes); }
+  catch (error) { throw new AppError((error as Error).message); }
   let deliverySteps = null;
   if (automationEnabled()) {
-    try { deliverySteps = fulfillmentSteps(priced.item, priced.quantity, priced.links, await providerServices(), null); }
+    try { deliverySteps = fulfillmentSteps(priced.item, priced.quantity, priced.links, await providerServices(), plan); }
     catch { throw new AppError("This service cannot be delivered with these details. No payment or wallet charge was created.", 409); }
   }
   const links = JSON.stringify(priced.links);
@@ -126,15 +130,15 @@ export async function createOrder(raw: unknown, user: AccountUser | null) {
     const existing = (await one(db, "SELECT * FROM \"appOrder\" WHERE \"requestScope\" = $1 AND \"requestKey\" = $2", [scope, input.requestKey])) as OrderRecord | undefined;
     if (existing) {
       const reference = (await one(db, "SELECT reference FROM \"appPayment\" WHERE \"orderId\" = $1", [existing.id])) as { reference: string } | undefined;
-      if (existing.itemId !== input.itemId || existing.quantity !== priced.quantity || existing.method !== input.method || existing.links !== links || (input.method === "direct" && reference?.reference !== input.reference)) throw new AppError("This request key was already used for a different order.", 409);
+      if (existing.itemId !== input.itemId || existing.quantity !== priced.quantity || existing.method !== input.method || existing.deliveryWindowMinutes !== input.deliveryWindowMinutes || existing.links !== links || (input.method === "direct" && reference?.reference !== input.reference)) throw new AppError("This request key was already used for a different order.", 409);
       return result(existing);
     }
     if (input.method === "direct" && (await one(db, "SELECT id FROM \"appPayment\" WHERE reference = $1", [input.reference!]))) throw new AppError("This eSewa reference has already been submitted. Contact support if it belongs to you.", 409);
     if (user) await wallet(user.id, db);
     const id = randomUUID();
     const now = timestamp();
-    const status = input.method === "wallet" ? (user && supportsGradualDelivery(priced.item) ? "awaiting_delivery" : "queued") : "awaiting_payment";
-    (await db.query("INSERT INTO \"appOrder\"(id,\"userId\",email,\"itemId\",\"itemKind\",\"itemName\",quantity,\"amountPaisa\",links,method,status,\"requestScope\",\"requestKey\",\"createdAt\",\"updatedAt\") VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)", [id, user?.id ?? null, email, priced.item.id, priced.item.kind, priced.item.name, priced.quantity, priced.amountPaisa, links, input.method, status, scope, input.requestKey, now, now]));
+    const status = input.method === "wallet" ? "queued" : "awaiting_payment";
+    (await db.query("INSERT INTO \"appOrder\"(id,\"userId\",email,\"itemId\",\"itemKind\",\"itemName\",quantity,\"amountPaisa\",links,method,status,\"requestScope\",\"requestKey\",\"createdAt\",\"updatedAt\",\"deliveryWindowMinutes\",\"deliveryPlan\") VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)", [id, user?.id ?? null, email, priced.item.id, priced.item.kind, priced.item.name, priced.quantity, priced.amountPaisa, links, input.method, status, scope, input.requestKey, now, now, input.deliveryWindowMinutes, plan ? JSON.stringify(plan) : null]));
     if (input.method === "wallet") {
       const debit = (await db.query("UPDATE \"appWallet\" SET \"balancePaisa\" = \"balancePaisa\" - $1 WHERE \"userId\" = $2 AND \"balancePaisa\" >= $3", [priced.amountPaisa, user!.id, priced.amountPaisa]));
       if (debit.rowCount !== 1) throw new AppError("Insufficient wallet balance. Add funds or choose direct eSewa payment.", 409);
@@ -187,8 +191,7 @@ export async function reviewPayment(raw: unknown, actorId: string) {
     }
     if (payment.kind === "order") {
       const order = (await one(db, "SELECT * FROM \"appOrder\" WHERE id = $1 FOR UPDATE", [payment.orderId!])) as OrderRecord;
-      const service = services.find((item) => item.id === order.itemId);
-      const next = input.decision === "reject" ? "payment_rejected" : order.userId && service && supportsGradualDelivery(service) ? "awaiting_delivery" : "queued";
+      const next = input.decision === "reject" ? "payment_rejected" : "queued";
       const update = (await db.query("UPDATE \"appOrder\" SET status = $1, \"updatedAt\" = $2 WHERE id = $3 AND status = 'awaiting_payment'", [next, now, payment.orderId!]));
       if (update.rowCount !== 1) throw new AppError("This order can no longer accept a payment review.", 409);
     }

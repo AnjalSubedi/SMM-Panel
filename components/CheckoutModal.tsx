@@ -5,7 +5,8 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { ArrowRight, CheckCircle2, LockKeyhole, Wallet, X } from "lucide-react";
 import { formatPrice } from "../lib/catalogFormat";
 import type { CatalogItem } from "../lib/catalog";
-import { supportsGradualDelivery } from "../lib/delivery";
+import { deliveryLabel, planDelivery } from "../lib/delivery";
+import DeliveryTiming from "./DeliveryTiming";
 import { deliveryTargets } from "../lib/fulfillmentCatalog";
 import { requiredPlatforms, checkoutReturnPath } from "../lib/checkout";
 import { authClient } from "../lib/auth-client";
@@ -29,6 +30,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsLanguage, setTermsLanguage] = useState<TermsLanguage>("en");
   const [paymentReady, setPaymentReady] = useState(false);
+  const [deliveryWindowMinutes, setDeliveryWindowMinutes] = useState(0);
   const [tab, setTab] = useState<"direct" | "wallet">("direct");
   const targets = item.automaticDeliveryAvailable === undefined ? requiredPlatforms(item).map(platform => ({ key: platform, platform, label: platform + " profile, page or video link" })) : deliveryTargets(item);
   const platforms = targets.map(target => target.key);
@@ -58,6 +60,9 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
         for (const platform of platforms) if (typeof draft.links[platform] === "string") publicLinks[platform] = draft.links[platform];
         setLinks(publicLinks);
         if (draft.method === "wallet") setTab("wallet");
+        if (Number.isInteger(draft.deliveryWindowMinutes)) {
+          try { planDelivery(item, Number(item.quantity), draft.deliveryWindowMinutes); setDeliveryWindowMinutes(draft.deliveryWindowMinutes); } catch { /* Changed services retain default delivery. */ }
+        }
       }
     } catch { /* An invalid browser draft is ignored. */ }
     return () => {
@@ -86,7 +91,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
   }, [paymentReady, tab]);
 
   function saveDraft() {
-    try { sessionStorage.setItem(draftKey, JSON.stringify({ itemId: item.id, quantity: item.kind === "package" ? 1 : Number(item.quantity), links, method: tab, returnTo: returnPath })); } catch { /* Checkout is still available without browser storage. */ }
+    try { sessionStorage.setItem(draftKey, JSON.stringify({ itemId: item.id, quantity: item.kind === "package" ? 1 : Number(item.quantity), links, method: tab, deliveryWindowMinutes, returnTo: returnPath })); } catch { /* Checkout is still available without browser storage. */ }
   }
 
   function navigateTabs(event: KeyboardEvent<HTMLButtonElement>) {
@@ -101,6 +106,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
     event.preventDefault();
     if (busy) return;
     if (item.automaticDeliveryAvailable === false) { setError("This service is temporarily unavailable. Please choose another service."); return; }
+    if (deliveryError) { setError(deliveryError); return; }
     if (!termsAccepted) { setError("Please read and accept the terms before payment."); return; }
     if (targets.some(target => !isPublicOrderLink((links[target.key] || "").trim(), target.platform))) { setError("Enter a valid public link from the selected platform before paying. Check the domain and remove any login details."); return; }
     if (!paymentReady) {
@@ -114,6 +120,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
         const total = current?.kind === "package" ? Math.round(current.price * 100) : current ? Math.round(Math.round(current.price * 100) * Number(item.quantity) / (current.unitSize || 1)) : 0;
         if (!current || current.automaticDeliveryAvailable === false) throw new Error("This service is temporarily unavailable. Please choose another service.");
         if (total !== Math.round(item.price * 100)) throw new Error("The price changed. Close checkout and refresh the catalog to review the total before paying.");
+        planDelivery(current, item.kind === "package" ? 1 : Number(item.quantity), deliveryWindowMinutes);
         setPaymentReady(true);
       } catch (issue) { setError(issue instanceof Error ? issue.message : "Please try again before paying."); }
       finally { setBusy(false); }
@@ -127,7 +134,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
         body: JSON.stringify({
           itemId: item.id, quantity: item.kind === "package" ? 1 : Number(item.quantity),
           links: targets.map(target => ({ platform: target.platform, ...(target.key !== target.platform ? { target: target.key } : {}), url: (links[target.key] || "").trim() })),
-          expectedAmountPaisa: Math.round(item.price * 100),
+          expectedAmountPaisa: Math.round(item.price * 100), deliveryWindowMinutes,
           method: tab, requestKey: requestKey.current, ...termsAcceptance(termsLanguage),
           ...(tab === "direct" ? { reference: reference.trim(), ...(!session ? { email: email.trim() } : {}) } : {}),
         }),
@@ -141,14 +148,15 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
     finally { setBusy(false); }
   }
 
+  let deliveryError = "";
+  try { planDelivery(item, item.kind === "package" ? 1 : Number(item.quantity), deliveryWindowMinutes); } catch (issue) { deliveryError = (issue as Error).message; }
   const insufficient = balance !== null && balance < Math.round(item.price * 100);
 
   return <dialog ref={dialogRef} aria-labelledby="checkout-title" onCancel={(event) => { event.preventDefault(); if (!busy) onDismiss(); }} className="checkout-dialog fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl">
     <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:px-7"><div><p className="eyebrow">Your order</p><h2 id="checkout-title" ref={titleRef} tabIndex={-1} className="mt-1 text-2xl font-bold tracking-tight outline-none">{success ? "Order received" : "Review and pay"}</h2></div><button type="button" disabled={busy} aria-label="Close checkout" onClick={onDismiss} className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"><X size={18} aria-hidden="true" /></button></div>
     <div className="p-5 sm:p-7">
-      {success ? <div className="py-5 text-center"><CheckCircle2 size={42} className="mx-auto text-emerald-600" aria-hidden="true" /><h3 className="mt-4 text-xl font-bold">{success.method === "wallet" ? "Paid from your wallet" : "Payment submitted for review"}</h3><p className="mx-auto mt-3 max-w-sm text-sm leading-7 text-slate-600">{success.method === "wallet" ? success.status === "awaiting_delivery" ? "We’ve taken the payment from your wallet. Open My orders and choose when you’d like delivery to start." : "We’ve taken the payment from your wallet. Your order will be sent for delivery automatically." : session && supportsGradualDelivery(item) ? "We’ve saved your order. Once our team checks your payment, you can choose your delivery timing in My orders." : "We’ve saved your order. Our team will check your eSewa payment before delivery starts."}</p><p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs">Order #{success.id}</p><p className="mt-4 font-mono text-2xl font-bold text-blue-600">{formatPrice(success.amountPaisa / 100)}</p><div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">{session && <Link onNavigate={onDismiss} href={"/account#order-" + encodeURIComponent(success.id)} className="button-primary min-h-11 px-5 text-sm">{success.status === "awaiting_delivery" ? "Choose delivery timing" : "View my orders"}<ArrowRight size={15} /></Link>}<button type="button" onClick={onDismiss} className="button-secondary min-h-11 px-5 text-sm">Continue browsing</button></div>{!session && <p className="mt-4 text-xs leading-6 text-slate-500">Keep your order number and eSewa transaction code in case you need help. Orders placed without signing in will not appear in an account you create later.</p>}</div> : <>
+      {success ? <div className="py-5 text-center"><CheckCircle2 size={42} className="mx-auto text-emerald-600" aria-hidden="true" /><h3 className="mt-4 text-xl font-bold">{success.method === "wallet" ? "Paid from your wallet" : "Payment submitted for review"}</h3><p className="mx-auto mt-3 max-w-sm text-sm leading-7 text-slate-600">{success.method === "wallet" ? "Payment received. Your order will be sent for delivery automatically using your chosen timing." : "Your order and delivery timing are saved. Delivery starts automatically after our team confirms your eSewa payment."}</p><p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs">Order #{success.id}</p><p className="mt-4 font-mono text-2xl font-bold text-blue-600">{formatPrice(success.amountPaisa / 100)}</p><div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">{session && <Link onNavigate={onDismiss} href={"/account#order-" + encodeURIComponent(success.id)} className="button-primary min-h-11 px-5 text-sm">View my orders<ArrowRight size={15} /></Link>}<button type="button" onClick={onDismiss} className="button-secondary min-h-11 px-5 text-sm">Continue browsing</button></div>{!session && <p className="mt-4 text-xs leading-6 text-slate-500">Keep your order number and eSewa transaction code in case you need help. Orders placed without signing in will not appear in an account you create later.</p>}</div> : <>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{item.kind === "package" ? "Package " + item.packageCode : item.platform + " · Quantity: " + item.quantity}</p><h3 className="mt-2 text-sm font-bold leading-6">{item.name}</h3>{item.kind === "package" && <ul className="mt-3 space-y-1.5 text-xs leading-5 text-slate-600">{item.inclusions.map(feature => <li key={feature}>{feature}</li>)}</ul>}<div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span className="text-xs text-slate-600">Order total</span><span className="font-mono text-2xl font-bold text-blue-600">{formatPrice(item.price)}</span></div></div>
-        {supportsGradualDelivery(item) && <p className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-6 text-blue-800">{session ? "Once your payment is checked, open My orders to choose the usual delivery speed or spread delivery over time. We’ll wait for your choice before starting." : "Want delivery spread over time? Sign in before ordering. After we check your payment, you can choose a timeframe. Guest orders use the usual service speed."}</p>}
         <div role="tablist" aria-label="Payment method" className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">{(["direct", "wallet"] as const).map((method, index) => <button key={method} ref={(element) => { tabRefs.current[index] = element; }} type="button" role="tab" id={"payment-tab-" + method} aria-selected={tab === method} aria-controls={"payment-panel-" + method} tabIndex={tab === method ? 0 : -1} onKeyDown={navigateTabs} onClick={() => { setTab(method); setPaymentReady(false); setError(""); }} disabled={busy} className={"flex min-h-12 items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs font-semibold " + (tab === method ? "bg-white text-blue-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-900")}>{method === "wallet" && <Wallet size={15} aria-hidden="true" />}{method === "direct" ? "Pay directly with eSewa" : "Use account wallet"}</button>)}</div>
         <form onSubmit={submit}>
           <div id="payment-panel-wallet" role="tabpanel" aria-labelledby="payment-tab-wallet" hidden={tab !== "wallet"} className="mt-5">
@@ -158,15 +166,18 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
 
           <div className="mt-5 space-y-4">{platforms.map((platform, index) => <div key={platform}><label htmlFor={"public-url-" + index} className="text-xs font-semibold text-slate-700">{targets[index].label}</label><input id={"public-url-" + index} type="url" required disabled={busy} maxLength={2048} value={links[platform] || ""} onChange={(event) => { setLinks({ ...links, [platform]: event.target.value }); setTermsAccepted(false); setPaymentReady(false); }} placeholder="https://..." className="field-input" /><p className="mt-2 text-[11px] leading-5 text-slate-500">Check the link and keep the account or content public during delivery.</p></div>)}</div>
           {tab === "direct" && !session && <div className="mt-4"><label htmlFor="guest-email" className="text-xs font-semibold text-slate-700">Your email address</label><input id="guest-email" required disabled={busy} type="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="field-input" placeholder="you@example.com" /><p className="mt-2 text-[10px] text-slate-500">No account required. <Link onClick={saveDraft} onNavigate={onDismiss} href={"/login?next=" + loginReturn} className="font-semibold text-blue-600">Sign in</Link> to keep this order in your history.</p></div>}
+          <DeliveryTiming service={item} quantity={item.kind === "package" ? 1 : Number(item.quantity)} value={deliveryWindowMinutes} disabled={busy} onChange={minutes => { setDeliveryWindowMinutes(minutes); setPaymentReady(false); setError(""); }} />
+          {deliveryError && <p role="alert" className="mt-3 text-xs text-red-700">{deliveryError}</p>}
           <div className="mt-5"><TermsAcceptance purpose="order" accepted={termsAccepted} language={termsLanguage} disabled={busy} onAcceptedChange={value => { setTermsAccepted(value); if (!value) setPaymentReady(false); }} onLanguageChange={value => { if (value !== termsLanguage) { setTermsLanguage(value); setTermsAccepted(false); setPaymentReady(false); } }} /></div>
           <div ref={paymentRef} tabIndex={-1} id="payment-panel-direct" role="tabpanel" aria-labelledby="payment-tab-direct" hidden={tab !== "direct"} className={paymentReady ? "mt-5" : undefined}>{paymentReady && tab === "direct" && <>
+            <p className="mb-3 text-xs font-semibold text-slate-700">Delivery: {deliveryLabel(deliveryWindowMinutes)}</p>
             <PaymentQr />
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800">Pay exactly {formatPrice(item.price)}. Send us the transaction code from your receipt so our team can check the payment.</p>
             <div className="mt-4"><label htmlFor="transaction-code" className="text-xs font-semibold text-slate-700">eSewa transaction code</label><input id="transaction-code" required disabled={busy} minLength={6} maxLength={64} pattern="[a-zA-Z0-9-]+" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Transaction code from your eSewa receipt" className="field-input font-mono" /></div>
           </>}</div>
-          {paymentReady && tab === "wallet" && <p className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-xs leading-6 text-blue-800">You have accepted the order terms. Confirm below to pay {formatPrice(item.price)} from your wallet.</p>}
+          {paymentReady && tab === "wallet" && <p className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-xs leading-6 text-blue-800">You have accepted the order terms. Confirm below to pay {formatPrice(item.price)} from your wallet. Delivery: {deliveryLabel(deliveryWindowMinutes)}.</p>}
           {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-6 text-red-700">{error}</p>}
-          <button disabled={item.automaticDeliveryAvailable === false || busy || !termsAccepted || sessionPending || (tab === "wallet" && (!session || balance === null || balanceError || insufficient))} className="button-primary mt-5 min-h-12 w-full px-4 text-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Placing your order..." : !paymentReady ? tab === "wallet" ? "Review wallet payment" : "Continue to eSewa payment" : tab === "wallet" ? "Pay " + formatPrice(item.price) + " from wallet" : "Send payment details"}<ArrowRight size={15} aria-hidden="true" /></button>
+          <button disabled={item.automaticDeliveryAvailable === false || Boolean(deliveryError) || busy || !termsAccepted || sessionPending || (tab === "wallet" && (!session || balance === null || balanceError || insufficient))} className="button-primary mt-5 min-h-12 w-full px-4 text-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Placing your order..." : !paymentReady ? tab === "wallet" ? "Review wallet payment" : "Continue to eSewa payment" : tab === "wallet" ? "Pay " + formatPrice(item.price) + " from wallet" : "Send payment details"}<ArrowRight size={15} aria-hidden="true" /></button>
         </form>
         <p className="mt-4 flex items-center justify-center gap-1.5 text-[10px] text-slate-400"><LockKeyhole size={11} aria-hidden="true" />Your social account password is never required.</p>
       </>}
