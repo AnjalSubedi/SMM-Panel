@@ -4,6 +4,7 @@ import { configuredMarkup } from "../../../lib/fulfillmentCatalog";
 import { services, servicesVerifiedAt } from "../../../lib/services";
 import { automationEnabled, liveRetailCatalog } from "../../../lib/server/suvakrio";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 export async function GET() {
   let catalog = { services, packages: [...packages] }; let source: ServiceCatalogResponse["source"] = "configured";
   if (automationEnabled()) {

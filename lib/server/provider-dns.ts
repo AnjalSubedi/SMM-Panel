@@ -6,6 +6,7 @@ const host = "suvakriosmm.com";
 const endpoint = "https://suvakriosmm.com/api/v2";
 const resolvers = ["https://1.1.1.1/dns-query", "https://dns.google/resolve"];
 const state = globalThis as typeof globalThis & { dmnpProviderAddress?: { address: string; until: number } };
+export function hasProviderDnsAddress() { return Boolean(state.dmnpProviderAddress && state.dmnpProviderAddress.until > Date.now()); }
 function publicV4(value: unknown): value is string {
   if (typeof value !== "string" || isIP(value) !== 4) return false;
   const [a,b,c] = value.split(".").map(Number);

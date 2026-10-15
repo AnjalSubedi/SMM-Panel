@@ -1,5 +1,5 @@
 import "server-only";
-import { requestProviderWithPublicDns } from "./provider-dns";
+import { hasProviderDnsAddress, requestProviderWithPublicDns } from "./provider-dns";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getDb } from "./db";
@@ -35,10 +35,16 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
     const form = new URLSearchParams({ key, action });
     for (const [name, input] of Object.entries(fields)) form.set(name, String(input));
     const signal = AbortSignal.timeout(15000);
-    try { response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal }); }
-    catch (error) {
-      if (safeCode(error) !== "ENOTFOUND") throw error;
+    if (hasProviderDnsAddress()) {
       response = await requestProviderWithPublicDns(form.toString(), signal, phase => { stage = phase; });
+    } else {
+      try { response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal }); }
+      catch (error) {
+        if (safeCode(error) !== "ENOTFOUND") throw error;
+        // DNS failed before connecting: no provider request was sent. Give DNS
+        // recovery its own bounded budget instead of an almost-expired signal.
+        response = await requestProviderWithPublicDns(form.toString(), AbortSignal.timeout(15000), phase => { stage = phase; });
+      }
     }
     stage = "body";
     const reader = response.body?.getReader(); if (!reader) throw new Error("Empty provider response");

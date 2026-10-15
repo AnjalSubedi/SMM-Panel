@@ -31,14 +31,16 @@ test("DNS fallback recovers the Vercel failure without weakening TLS or repeatin
     await providerRequest("balance");assert.equal(nativeCalls,0);
   });
   await t.test("ENOTFOUND uses a public HTTPS DNS answer and retains the original TLS hostname",async()=>{
-    reset();let dnsCalls=0;
+    reset();let dnsCalls=0;let primaryCalls=0;let primarySignal:AbortSignal|undefined;
     globalThis.fetch=async(url,options)=>{
-      if(String(url)===endpoint)throw dnsFailure();
+      if(String(url)===endpoint){primaryCalls++;primarySignal=options?.signal??undefined;throw dnsFailure();}
       dnsCalls++;assert.equal(new URL(String(url)).searchParams.get("name"),"suvakriosmm.com");assert.equal(options?.body,undefined);assert.equal(String(url).includes(process.env.SUVAKRIO_API_KEY!),false);
       return json({Status:0,Answer:[{type:1,data:"93.184.216.34",TTL:120}]});
     };
     assert.deepEqual(await providerRequest("balance"),{balance:"252.20",currency:"NPR"});assert.equal(nativeCalls,1);assert.equal(dnsCalls,1);
+    assert.notEqual(lastOptions!.signal,primarySignal,"DNS recovery must not reuse the nearly expired lookup deadline");
     const phases:string[]=[];await requestProviderWithPublicDns(new URLSearchParams({key:process.env.SUVAKRIO_API_KEY!,action:"balance"}).toString(),AbortSignal.timeout(15000),phase=>phases.push(phase));assert.ok(phases.includes("dns_https_request"));assert.ok(phases.includes("dns_https_response"));
+    await providerRequest("balance");assert.equal(primaryCalls,1,"A cached public address avoids repeating the broken system lookup");assert.equal(dnsCalls,1);
     assert.equal(lastOptions!.servername,"suvakriosmm.com");assert.equal(lastOptions!.rejectUnauthorized,true);assert.equal(lastOptions!.agent,false);
     let resolved:unknown;lastOptions!.lookup!("suvakriosmm.com",{all:true},(error,address)=>{assert.equal(error,null);resolved=address;});
     assert.deepEqual(resolved,[{address:"93.184.216.34",family:4}]);assert.equal(new URLSearchParams(sentBody).get("key"),process.env.SUVAKRIO_API_KEY);
