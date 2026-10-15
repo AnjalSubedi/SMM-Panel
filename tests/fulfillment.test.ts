@@ -22,6 +22,7 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
   await db.query('INSERT INTO "appWallet"("userId","balancePaisa") VALUES($1,1000000000)', [customer.id]);
   let catalog = savedProviderCatalog.map(p => ({...p}));
   let catalogUnavailable = false;
+  let balanceFailure: string | null = null;
   let addMode = "ok"; let balance = 1000000; let counter = 9000;
   const adds: URLSearchParams[] = []; const providerOrders = new Map<string,{status:string;remains:number;currency:string}>();
   globalThis.fetch = async (url, options) => {
@@ -30,7 +31,7 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     const json = (value: unknown) => new Response(JSON.stringify(value), {status:200});
     switch(form.get("action")) {
       case "services": if (catalogUnavailable) throw new Error("Mock provider unavailable"); return json(catalog);
-      case "balance": return json({balance:String(balance),currency:"NPR"});
+      case "balance": return balanceFailure ? json({error:balanceFailure}) : json({balance:String(balance),currency:"NPR"});
       case "add": {
         adds.push(form);
         if (addMode === "reject") return json({error:"Service unavailable"});
@@ -81,6 +82,17 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     assert.equal(c.services.find(s=>s.id==="IG_11")!.automaticDeliveryAvailable,false);
     assert.equal(c.packages[3].automaticDeliveryAvailable,false);
     await assert.rejects(createOrder(await input("YT_01",1000),customer),/unavailable/);
+  });
+  await t.test("private provider diagnostics identify authentication failures without storing the key or raw reply",async()=>{
+    await invalidate();balanceFailure="Invalid API key " + process.env.SUVAKRIO_API_KEY;
+    try {
+      await assert.rejects(liveRetailCatalog(),(error: unknown)=>(error as {diagnostic:{stage:string}}).diagnostic.stage==="authentication");
+      await assert.rejects(liveRetailCatalog());
+      const rows=(await db.query(`SELECT note FROM "appAudit" WHERE action='provider_connection_failed' AND note LIKE '%authentication%'`)).rows;
+      assert.equal(rows.length,1,"Repeated failures are deduplicated");
+      assert.equal(rows[0].note.includes(process.env.SUVAKRIO_API_KEY!),false);
+      assert.deepEqual(JSON.parse(rows[0].note),{code:"rejected",action:"balance",stage:"authentication",httpStatus:200});
+    } finally {balanceFailure=null;await invalidate();}
   });
   let paid = "";
   await t.test("wallet debit and durable jobs are atomic; concurrent workers submit one actual provider ID",async()=>{
