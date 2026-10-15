@@ -47,7 +47,7 @@ Do not manually upload the whole folder through GitHub's browser file uploader. 
 5. Choose a supported Node.js version compatible with the completed application; Node 22.x matches the current project runtime baseline.
 6. Add the production environment variables before the first complete deployment.
 
-The committed vercel.json places functions in Singapore (sin1), matching this project's current Neon database region. Keep the application and database close together; update that region if you move the database. See Vercel's [function region configuration](https://vercel.com/docs/functions/configuring-functions/region). The existing build command applies the additive performance indexes along with the account schema before building.
+The committed vercel.json places functions in Frankfurt (fra1). On 2026-10-15, production provider calls from Singapore failed DNS resolution and HTTPS connection checks, while Frankfurt returned the live catalog successfully. Neon remains in Singapore, so account database requests cross regions; verify both provider connectivity and account latency before changing the runtime region. See Vercel's [function region configuration](https://vercel.com/docs/functions/configuring-functions/region). The existing build command applies the additive performance indexes along with the account schema before building.
 
 ## 5. Production environment variables
 
