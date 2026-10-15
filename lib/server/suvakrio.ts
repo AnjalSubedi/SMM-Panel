@@ -1,4 +1,5 @@
 import "server-only";
+import { requestProviderWithPublicDns } from "./provider-dns";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getDb } from "./db";
@@ -33,7 +34,12 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
   try {
     const form = new URLSearchParams({ key, action });
     for (const [name, input] of Object.entries(fields)) form.set(name, String(input));
-    response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15000) });
+    const signal = AbortSignal.timeout(15000);
+    try { response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal }); }
+    catch (error) {
+      if (safeCode(error) !== "ENOTFOUND") throw error;
+      response = await requestProviderWithPublicDns(form.toString(), signal);
+    }
     stage = "body";
     const reader = response.body?.getReader(); if (!reader) throw new Error("Empty provider response");
     const chunks: Uint8Array[] = []; let length = 0;
