@@ -1,10 +1,10 @@
 import "server-only";
-import https from "node:https";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 
 const host = "suvakriosmm.com";
 const endpoint = "https://suvakriosmm.com/api/v2";
-const resolvers = ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"];
+const resolvers = ["https://1.1.1.1/dns-query", "https://dns.google/resolve"];
 const state = globalThis as typeof globalThis & { dmnpProviderAddress?: { address: string; until: number } };
 function publicV4(value: unknown): value is string {
   if (typeof value !== "string" || isIP(value) !== 4) return false;
@@ -14,25 +14,26 @@ function publicV4(value: unknown): value is string {
 type Diagnostic = (stage: string) => void;
 async function resolveAddress(signal: AbortSignal, diagnostic: Diagnostic) {
   if (state.dmnpProviderAddress && state.dmnpProviderAddress.until > Date.now()) return state.dmnpProviderAddress.address;
+  let failure = "dns_no_answer";
   for (const resolver of resolvers) {
     signal.throwIfAborted();
     try {
-      diagnostic(resolver.includes("cloudflare") ? "dns_cloudflare" : "dns_google");
+      diagnostic(resolver.includes("dns.google") ? "dns_google" : "dns_cloudflare");
       // Only the public provider hostname goes to DNS resolvers, never credentials.
       const response = await fetch(resolver + "?name=" + host + "&type=A", { headers: { Accept: "application/dns-json" }, cache: "no-store", redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]) });
-      if (!response.ok) continue;
+      if (!response.ok) { failure = "dns_http_" + response.status; continue; }
       diagnostic("dns_parse");
       const raw = await response.text(); if (raw.length > 16384) continue;
       const data = JSON.parse(raw);
-      if (data.Status !== 0 || !Array.isArray(data.Answer)) continue;
+      if (data.Status !== 0 || !Array.isArray(data.Answer)) { failure = "dns_status_" + (Number.isInteger(data.Status) ? data.Status : "invalid"); continue; }
       const answer = data.Answer.find((entry: { type?: unknown; data?: unknown }) => entry.type===1 && publicV4(entry.data));
-      if (!answer) continue;
+      if (!answer) { failure = "dns_no_public_answer"; continue; }
       const ttl = Number.isFinite(answer.TTL) ? Math.min(300, Math.max(1, answer.TTL)) : 60;
       state.dmnpProviderAddress = { address: answer.data, until: Date.now()+ttl*1000 };
       return answer.data as string;
-    } catch { /* Try the other HTTPS resolver within the original request deadline. */ }
+    } catch(error) { failure = "dns_resolver_" + ((error as Error)?.name === "TimeoutError" ? "timeout" : "unavailable"); }
   }
-  diagnostic("dns_no_answer");
+  diagnostic(failure);
   throw Object.assign(new Error("Provider DNS resolution failed"), { code: "ENOTFOUND" });
 }
 
@@ -43,7 +44,7 @@ export async function requestProviderWithPublicDns(body: string, signal: AbortSi
   signal.throwIfAborted();
   diagnostic("dns_https_request");
   return new Promise((resolve,reject) => {
-    const request = https.request(endpoint, {
+    const request = httpsRequest(endpoint, {
       method: "POST", agent: false, servername: host, rejectUnauthorized: true, signal,
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "Content-Length": Buffer.byteLength(body) },
       lookup(hostname, options, callback) {
