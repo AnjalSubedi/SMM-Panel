@@ -66,15 +66,15 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
 }
 const schema = z.object({ service: z.coerce.number().int().positive(), name: z.string().min(1).max(1000), type: z.string().min(1), category: z.string().default(""), rate: z.coerce.number().positive(), min: z.coerce.number().int().positive(), max: z.coerce.number().int().positive(), dripfeed: z.boolean().optional() });
 const globalState = globalThis as typeof globalThis & { dmnpProviderCatalog?: { digest: string; at: number; data?: ProviderService[]; pending?: Promise<ProviderService[]> } };
-export async function providerServices(): Promise<ProviderService[]> {
+export async function providerServices({ fresh = false }: { fresh?: boolean } = {}): Promise<ProviderService[]> {
   const digest = createHash("sha256").update((process.env.SUVAKRIO_API_KEY || "") + (process.env.DATABASE_URL || "")).digest("hex");
   if (!providerConfigured()) throw new ProviderError("unavailable", "Automatic delivery is temporarily unavailable.");
   let cache = globalState.dmnpProviderCatalog;
-  if (cache?.digest === digest && cache.pending) return cache.pending;
-  if (cache?.digest === digest && cache.data && Date.now() - cache.at < 60000) return cache.data;
+  if (!fresh && cache?.digest === digest && cache.pending) return cache.pending;
+  if (!fresh && cache?.digest === digest && cache.data && Date.now() - cache.at < 60000) return cache.data;
   cache = { digest, at: 0 }; globalState.dmnpProviderCatalog = cache;
   cache.pending = (async () => {
-    const saved = (await getDb().query<{ services: ProviderService[] }>('SELECT services FROM "appProviderCatalog" WHERE id=1 AND digest=$1 AND "updatedAt" > NOW()-INTERVAL \'60 seconds\'', [digest])).rows[0];
+    const saved = fresh ? undefined : (await getDb().query<{ services: ProviderService[] }>('SELECT services FROM "appProviderCatalog" WHERE id=1 AND digest=$1 AND "updatedAt" > NOW()-INTERVAL \'60 seconds\'', [digest])).rows[0];
     if (saved) return saved.services;
     await providerBalance(); // Prices are only accepted after confirming NPR billing.
     const raw = await providerRequest("services");
@@ -90,7 +90,10 @@ export async function providerServices(): Promise<ProviderService[]> {
 }
 export async function liveRetailCatalog() {
   if (!automationEnabled()) return { services, packages };
-  return automaticRetailCatalog(await providerServices());
+  const catalog = await providerServices();
+  // An underfunded combo must be unavailable before showing a payment QR or
+  // debiting a wallet. Dispatch rechecks because these funds are not reserved.
+  return automaticRetailCatalog(catalog, undefined, await providerBalance());
 }
 export async function providerBalance() {
   const value = z.object({ balance: z.coerce.number().nonnegative(), currency: z.string() }).safeParse(await providerRequest("balance"));

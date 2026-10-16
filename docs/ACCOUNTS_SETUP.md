@@ -190,3 +190,7 @@ The provider has no documented add-order idempotency key. A timeout, invalid res
 Queued legacy orders with safe mappings, correct links and sufficient paid value can be adopted automatically. Previously manually processed orders are excluded. Unsupported legacy orders require a support check; their paid amounts are never silently increased.
 
 Provider connection failures are recorded in the private audit log using controlled diagnostic codes, without request bodies or secrets. If the normal provider lookup fails with ENOTFOUND before a request is sent, the server resolves the fixed provider hostname through Cloudflare or Google HTTPS DNS. Recovery has a separate 15-second deadline only after a DNS failure proves the provider was not contacted; a resolved address is reused for up to five minutes. The fallback accepts public IPv4 answers only and preserves the original hostname, SNI and certificate verification. Timeouts, TLS failures and uncertain submissions are never retried through this fallback. DNS lookups contain no API key.
+
+## Combo package safety
+
+See [COMBO_PACKAGE_AUDIT.md](COMBO_PACKAGE_AUDIT.md) for component mappings, exact API quantities, funding checks, partial refunds and reconciliation limits. New combo checkout is blocked unless the live provider balance covers the whole package; dispatch checks again before its first component starts.

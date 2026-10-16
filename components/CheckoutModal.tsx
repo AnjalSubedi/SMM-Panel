@@ -7,7 +7,7 @@ import { formatPrice } from "../lib/catalogFormat";
 import type { CatalogItem } from "../lib/catalog";
 import { deliveryLabel, planDelivery } from "../lib/delivery";
 import DeliveryTiming from "./DeliveryTiming";
-import { deliveryTargets } from "../lib/fulfillmentCatalog";
+import { deliveryTargets, type DeliveryTarget } from "../lib/fulfillmentCatalog";
 import { requiredPlatforms, checkoutReturnPath } from "../lib/checkout";
 import { authClient } from "../lib/auth-client";
 import { isPublicOrderLink } from "../lib/orderLinks";
@@ -32,7 +32,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
   const [paymentReady, setPaymentReady] = useState(false);
   const [deliveryWindowMinutes, setDeliveryWindowMinutes] = useState(0);
   const [tab, setTab] = useState<"direct" | "wallet">("direct");
-  const targets = item.automaticDeliveryAvailable === undefined ? requiredPlatforms(item).map(platform => ({ key: platform, platform, label: platform + " profile, page or video link" })) : deliveryTargets(item);
+  const targets: DeliveryTarget[] = item.automaticDeliveryAvailable === undefined ? requiredPlatforms(item).map(platform => ({ key: platform, platform, label: platform + " profile, page or video link" })) : deliveryTargets(item);
   const platforms = targets.map(target => target.key);
   const [links, setLinks] = useState<Record<string, string>>({});
   const [email, setEmail] = useState("");
@@ -164,7 +164,7 @@ export default function CheckoutModal({ item, onDismiss, returnTo, onOrderPlaced
             {sessionPending ? <p className="mt-3 text-xs text-slate-500">Checking your account...</p> : !session ? <div className="mt-4 rounded-lg border border-slate-200 p-4"><p className="text-xs leading-6 text-slate-600">Sign in to add funds to your wallet and pay for this order. Your service selection will be saved.</p><div className="mt-3 flex flex-col gap-3 sm:flex-row"><Link href={"/login?next=" + loginReturn} onClick={saveDraft} onNavigate={onDismiss} className="button-primary min-h-10 px-4 text-xs">Sign in to add funds</Link><Link href={"/register?next=" + loginReturn} onClick={saveDraft} onNavigate={onDismiss} className="button-secondary min-h-10 px-4 text-xs">Create account</Link></div></div> : balanceError ? <p role="alert" className="mt-3 text-xs text-red-700">Unable to load your wallet balance. Reopen checkout to try again.</p> : insufficient ? <p className="mt-3 text-xs leading-6 text-amber-800">You need {formatPrice((Math.round(item.price * 100) - balance!) / 100)} more. <Link href="/account?resume=1#add-funds" onClick={saveDraft} onNavigate={onDismiss} className="font-semibold text-blue-600">Add funds</Link> or choose direct eSewa payment.</p> : <p className="mt-3 text-xs leading-6 text-slate-500">We’ll take the total from your wallet when you place this order.</p>}
           </div>
 
-          <div className="mt-5 space-y-4">{platforms.map((platform, index) => <div key={platform}><label htmlFor={"public-url-" + index} className="text-xs font-semibold text-slate-700">{targets[index].label}</label><input id={"public-url-" + index} type="url" required disabled={busy} maxLength={2048} value={links[platform] || ""} onChange={(event) => { setLinks({ ...links, [platform]: event.target.value }); setTermsAccepted(false); setPaymentReady(false); }} placeholder="https://..." className="field-input" /><p className="mt-2 text-[11px] leading-5 text-slate-500">Check the link and keep the account or content public during delivery.</p></div>)}</div>
+          <div className="mt-5 space-y-4">{platforms.map((platform, index) => <div key={platform}><label htmlFor={"public-url-" + index} className="text-xs font-semibold text-slate-700">{targets[index].label}</label><input id={"public-url-" + index} type="url" required disabled={busy} maxLength={2048} value={links[platform] || ""} onChange={(event) => { setLinks({ ...links, [platform]: event.target.value }); setTermsAccepted(false); setPaymentReady(false); }} placeholder="https://..." className="field-input" /><p className="mt-2 text-[11px] leading-5 text-slate-500">{targets[index].help ?? "Check the link and keep the account or content public during delivery."}</p></div>)}</div>
           {tab === "direct" && !session && <div className="mt-4"><label htmlFor="guest-email" className="text-xs font-semibold text-slate-700">Your email address</label><input id="guest-email" required disabled={busy} type="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="field-input" placeholder="you@example.com" /><p className="mt-2 text-[10px] text-slate-500">No account required. <Link onClick={saveDraft} onNavigate={onDismiss} href={"/login?next=" + loginReturn} className="font-semibold text-blue-600">Sign in</Link> to keep this order in your history.</p></div>}
           <DeliveryTiming service={item} quantity={item.kind === "package" ? 1 : Number(item.quantity)} value={deliveryWindowMinutes} disabled={busy} onChange={minutes => { setDeliveryWindowMinutes(minutes); setPaymentReady(false); setError(""); }} />
           {deliveryError && <p role="alert" className="mt-3 text-xs text-red-700">{deliveryError}</p>}

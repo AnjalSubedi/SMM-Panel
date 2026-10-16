@@ -100,6 +100,37 @@ async function main() {
     assert.equal(Number((await db.query('SELECT "balancePaisa" FROM "appWallet" WHERE "userId"=$1',[user.id])).rows[0].balancePaisa),Number(beforeTimed)-Number(timed.amountPaisa));
     assert.equal(await evaluate('!!document.querySelector("[data-delivery-order]")'),false);
     await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
+    // Combo checkout collects the component-specific links and pays only once.
+    await db.query('UPDATE "appWallet" SET "balancePaisa"=$1 WHERE "userId"=$2',[1000000,user.id]);
+    await call('Page.navigate',{url:base+'/services#packages'});
+    await waitFor('!!document.getElementById("COMBO_CREATOR_STARTER-title") && !document.querySelector("header .animate-pulse")');
+    assert.equal(await evaluate('document.getElementById("COMBO_YPP_COMPLETE-title").closest("article").querySelector("button").disabled'),true);
+    await evaluate('document.getElementById("COMBO_FB_MONETIZATION-title").closest("article").querySelector("button").click()');
+    await waitFor('!!document.querySelector("dialog[open] #public-url-1")');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'),/requires a public 3-hour Facebook video/);
+    await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
+    await evaluate('document.getElementById("COMBO_CREATOR_STARTER-title").closest("article").querySelector("button").click()');
+    await waitFor('!!document.querySelector("dialog[open] #public-url-2")');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'),/1,000 Facebook post likes/);
+    assert.equal(await evaluate('!!document.querySelector("dialog #public-url-3")'),false);
+    await set('#public-url-0','https://facebook.com/combo-page');await set('#public-url-1','https://instagram.com/combo-profile');await set('#public-url-2','https://facebook.com/combo-page/posts/123');
+    await evaluate('document.querySelector("#payment-tab-wallet").click()');await evaluate('document.querySelector("#order-terms-acceptance").click()');
+    await waitFor('!![...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Review wallet payment")&&!b.disabled)');
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Review wallet payment")).click()');
+    await waitFor('!![...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet")&&!b.disabled)');
+    await screenshot('combo-before-wallet-payment');
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("from wallet")&&!b.disabled).click()');
+    await waitFor('document.querySelector("dialog")?.textContent.includes("Paid from your wallet")');
+    const combo=(await db.query('SELECT id,"amountPaisa" FROM "appOrder" WHERE "userId"=$1 AND "itemId"=$2',[user.id,'COMBO_CREATOR_STARTER'])).rows[0];
+    await waitDb('SELECT status FROM "appOrder" WHERE id=$1',[combo.id],'submitted');
+    const components=(await db.query('SELECT payload,"providerOrderId" FROM "appFulfillment" WHERE "orderId"=$1 ORDER BY step',[combo.id])).rows;
+    assert.deepEqual(components.map(c=>c.payload.serviceId),[1731,1914,1756]);
+    assert.deepEqual(components.map(c=>c.payload.quantity),[5000,2500,1000]);
+    assert.deepEqual(components.map(c=>c.payload.link),['https://facebook.com/combo-page','https://instagram.com/combo-profile','https://facebook.com/combo-page/posts/123']);
+    assert.equal(new Set(components.map(c=>c.providerOrderId)).size,3);
+    assert.equal(Number((await db.query('SELECT COUNT(*) AS n FROM "appLedger" WHERE "sourceId"=$1',[combo.id])).rows[0].n),1);
+    assert.equal(Number((await db.query('SELECT "balancePaisa" FROM "appWallet" WHERE "userId"=$1',[user.id])).rows[0].balancePaisa),1000000-Number(combo.amountPaisa));
+    await evaluate('document.querySelector("dialog[open] button[aria-label]").click()');
     // Direct payments never dispatch without approval; admins submit automatically after receipt review.
     const guest=await post('/api/orders',{itemId:'IG_06',quantity:1000,expectedAmountPaisa:Number(order.amountPaisa),links:[{platform:'Instagram',url:'https://instagram.com/reel/test-guest'}],method:'direct',requestKey:randomUUID(),reference:'QA-'+randomUUID(),termsAccepted:true,termsVersion:'2026-10-14',termsLanguage:'en'});
     assert.equal(guest.status,201,JSON.stringify(guest.data));assert.equal(guest.data.status,'awaiting_payment');

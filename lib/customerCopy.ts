@@ -3,12 +3,12 @@ export const bundleCopy: Record<string, { name: string; badge: string; target: s
   COMBO_FB_MONETIZATION: {
     name: "Facebook followers & watch time", badge: "For video creators",
     target: "Facebook pages growing their video audience",
-    inclusions: ["10,000 Facebook page followers", "60,000 video watch minutes", "30-day refill for follower drops"],
+    inclusions: ["10,000 Facebook page followers", "60,000 video watch minutes", "30-day refill for follower drops", "Requires a 3-hour Facebook video"],
   },
   COMBO_CREATOR_STARTER: {
     name: "Facebook & Instagram starter", badge: "Two platforms",
     target: "Small businesses and creators using both platforms",
-    inclusions: ["5,000 Facebook page followers/likes", "2,500 Instagram followers", "1,000 Facebook post reactions"],
+    inclusions: ["5,000 Facebook page followers/likes", "2,500 Instagram followers", "1,000 Facebook post likes"],
   },
   COMBO_VIRAL_PACK: {
     name: "Reel views & likes", badge: "Views & likes",

@@ -23,8 +23,9 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
   let catalog = savedProviderCatalog.map(p => ({...p}));
   let catalogUnavailable = false;
   let balanceFailure: string | null = null;
+  let rejectService: number | null = null; let timeoutService: number | null = null;
   let addMode = "ok"; let balance = 1000000; let counter = 9000;
-  const adds: URLSearchParams[] = []; const providerOrders = new Map<string,{status:string;remains:number;currency:string}>();
+  const adds: URLSearchParams[] = []; const providerOrders = new Map<string,{status:string;remains:unknown;currency:string}>();
   globalThis.fetch = async (url, options) => {
     assert.equal(String(url), "https://suvakriosmm.com/api/v2", "All external network requests must be mocked");
     const form = new URLSearchParams(String(options?.body)); assert.equal(form.get("key"), "isolated-fake-provider-key");
@@ -34,10 +35,10 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
       case "balance": return balanceFailure ? json({error:balanceFailure}) : json({balance:String(balance),currency:"NPR"});
       case "add": {
         adds.push(form);
-        if (addMode === "reject") return json({error:"Service unavailable"});
+        if (addMode === "reject" || Number(form.get("service")) === rejectService) return json({error:"Service unavailable"});
         if (addMode === "balance") return json({error:"Not enough balance"});
         const id = String(++counter); providerOrders.set(id,{status:"Pending",remains:Number(form.get("quantity"))*Number(form.get("runs")||1),currency:"NPR"});
-        if(addMode === "timeout") throw new Error("Simulated connection loss after acceptance");
+        if(addMode === "timeout" || Number(form.get("service")) === timeoutService) throw new Error("Simulated connection loss after acceptance");
         return json({order:Number(id)});
       }
       case "status": return form.has("orders") ? json(Object.fromEntries(form.get("orders")!.split(",").map(id => [id,providerOrders.get(id) ?? {error:"Incorrect order ID"}]))) : json(providerOrders.get(form.get("order")!) ?? {error:"Incorrect order ID"});
@@ -130,6 +131,118 @@ test("automatic fulfillment uses mocked provider and isolated PostgreSQL", async
     const order=await createOrder(raw,customer);const count=adds.length;await runFulfillment({orderId:order.id});
     const submitted=adds.slice(count);assert.equal(submitted.length,2);assert.deepEqual(submitted.map(f=>Number(f.get("service"))),[1731,1741]);
     assert.deepEqual(submitted.map(f=>Number(f.get("quantity"))),[10000,1]);assert.equal((await jobs(order.id))[1].payload.costPaisa,Math.ceil(catalog.find(p=>p.service===1741)!.rate*100/1000));assert.notEqual(submitted[0].get("link"),submitted[1].get("link"));
+  });
+  await t.test("each available combo sends only its verified components, quantities and distinct links after one wallet debit", async () => {
+    const expected = [
+      {id:"COMBO_FB_MONETIZATION",ids:[1731,1741],quantities:[10000,1],targets:["Facebook:profile","Facebook:content"]},
+      {id:"COMBO_CREATOR_STARTER",ids:[1731,1914,1756],quantities:[5000,2500,1000],targets:["Facebook:profile","Instagram:profile","Facebook:content"]},
+      {id:"COMBO_VIRAL_PACK",ids:[1688,1695,1740],quantities:[50000,2000,25000],targets:["Instagram:content","Instagram:content","Facebook:content"]},
+    ];
+    for (const bundle of expected) {
+      const raw=await input(bundle.id,1); const before=(await accountData(customer)).balancePaisa; const sent=adds.length;
+      // Distinct fixtures expose accidentally reusing a page URL for a video.
+      raw.links=raw.links.map(link=>({...link,url:link.url+"-"+encodeURIComponent(link.target??link.platform)}));
+      const order=await createOrder(raw,customer);assert.equal(adds.length,sent);
+      assert.equal((await createOrder(raw,customer)).id,order.id);
+      const prepared=await jobs(order.id);
+      assert.equal(prepared.length,bundle.ids.length);
+      assert.equal(prepared.reduce((n,j)=>n+j.retailPaisa,0),order.amountPaisa);
+      assert.ok(prepared.every(j=>j.retailPaisa>=j.payload.costPaisa));
+      await Promise.all([runFulfillment({orderId:order.id}),runFulfillment({orderId:order.id})]);
+      const calls=adds.slice(sent);
+      assert.deepEqual(calls.map(f=>Number(f.get("service"))),bundle.ids);
+      assert.deepEqual(calls.map(f=>Number(f.get("quantity"))),bundle.quantities);
+      assert.deepEqual(calls.map(f=>f.get("link")),bundle.targets.map(target=>raw.links.find(l=>l.target===target)!.url));
+      assert.ok(calls.every(f=>!f.has("runs")&&!f.has("interval")));
+      assert.equal((await accountData(customer)).balancePaisa,before-order.amountPaisa);
+      assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM "appLedger" WHERE "sourceId"=$1',[order.id])).rows[0].n,1);
+      for(const job of await jobs(order.id))providerOrders.set(job.providerOrderId,{status:"Completed",remains:0,currency:"NPR"});
+      await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[order.id]);
+      await runFulfillment({orderId:order.id});assert.equal(await state(order.id),"completed");assert.equal(adds.length,sent+bundle.ids.length);
+    }
+    const before=(await accountData(customer)).balancePaisa;const count=(await accountData(customer)).orders.length;
+    await assert.rejects(createOrder(await input("COMBO_YPP_COMPLETE",1),customer),/unavailable/);
+    assert.equal((await accountData(customer)).balancePaisa,before);assert.equal((await accountData(customer)).orders.length,count);
+  });
+  await t.test("underfunded combos are unavailable before payment, while standalone availability is unchanged",async()=>{
+    const before=(await accountData(customer)).balancePaisa;const count=(await accountData(customer)).orders.length;const sent=adds.length;
+    const paymentCount=(await db.query('SELECT COUNT(*)::int AS n FROM "appPayment"')).rows[0].n;
+    balance=235.4;
+    try {
+      const c=await liveRetailCatalog();assert.ok(c.packages.every(p=>p.automaticDeliveryAvailable===false));assert.equal(c.services.find(s=>s.id==="IG_06")!.automaticDeliveryAvailable,true);
+      for(const itemId of ["COMBO_FB_MONETIZATION","COMBO_CREATOR_STARTER","COMBO_VIRAL_PACK"]){
+        await assert.rejects(createOrder(await input(itemId,1),customer),/unavailable/);
+        await assert.rejects(createOrder({...await input(itemId,1,"direct"),email:"guest-bundle@example.test"},null),/unavailable/);
+      }
+      assert.equal((await accountData(customer)).balancePaisa,before);assert.equal((await accountData(customer)).orders.length,count);assert.equal(adds.length,sent);
+      assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM "appPayment"')).rows[0].n,paymentCount,"No underfunded direct-payment claims were created");
+    } finally {balance=1000000;}
+  });
+  await t.test("a combo waits for enough provider balance for every component, then retries without another debit",async()=>{
+    const order=await createOrder(await input("COMBO_CREATOR_STARTER",1),customer);const prepared=await jobs(order.id);const sent=adds.length;
+    const paidBalance=(await accountData(customer)).balancePaisa;
+    balance=(prepared[0].payload.costPaisa+100)/100;
+    try {await runFulfillment({orderId:order.id});assert.equal(adds.length,sent);assert.equal(await state(order.id),"queued");assert.ok((await jobs(order.id)).every(j=>j.state==="ready"));}
+    finally {balance=1000000;}
+    await db.query('UPDATE "appFulfillment" SET "nextAttemptAt"=NOW() WHERE "orderId"=$1',[order.id]);
+    await runFulfillment({orderId:order.id});assert.equal(adds.length,sent+3);
+    assert.equal((await accountData(customer)).balancePaisa,paidBalance);
+  });
+  await t.test("a missing or unaffordable later component stops the whole untouched combo and refunds it once",async()=>{
+    for(const failure of ["missing","price"]){
+      const before=(await accountData(customer)).balancePaisa;const order=await createOrder(await input("COMBO_CREATOR_STARTER",1),customer);const sent=adds.length;const saved=catalog;
+      try {
+        catalog=failure==="missing"?catalog.filter(p=>p.service!==1756):catalog.map(p=>p.service===1914?{...p,rate:p.rate*10}:p);
+        // Do not invalidate the quote cache: bundle dispatch must refresh it itself.
+        await runFulfillment({orderId:order.id});
+        assert.equal(adds.length,sent);assert.equal(await state(order.id),"delivery_failed");assert.ok((await jobs(order.id)).every(j=>j.state==="rejected"));
+        assert.equal((await accountData(customer)).balancePaisa,before);
+        await runFulfillment({orderId:order.id});assert.equal((await accountData(customer)).balancePaisa,before);
+        assert.equal((await jobs(order.id)).reduce((n,j)=>n+j.refundedPaisa,0),order.amountPaisa);
+      } finally {catalog=saved;await invalidate();}
+    }
+  });
+  await t.test("a combo with one rejected component refunds only that component; completed components remain paid",async()=>{
+    const before=(await accountData(customer)).balancePaisa;const order=await createOrder(await input("COMBO_CREATOR_STARTER",1),customer);const prepared=await jobs(order.id);const sent=adds.length;
+    rejectService=1914;try {await runFulfillment({orderId:order.id});} finally {rejectService=null;}
+    const mixed=await jobs(order.id);assert.deepEqual(mixed.map(j=>j.state),["submitted","rejected","submitted"]);
+    assert.equal((await accountData(customer)).balancePaisa,before-order.amountPaisa+prepared[1].retailPaisa);
+    for(const job of mixed.filter(j=>j.providerOrderId))providerOrders.set(job.providerOrderId,{status:"Completed",remains:0,currency:"NPR"});
+    await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[order.id]);
+    await runFulfillment({orderId:order.id});assert.equal(await state(order.id),"partial");await runFulfillment({orderId:order.id});
+    assert.equal(adds.length,sent+3);assert.equal((await accountData(customer)).balancePaisa,before-order.amountPaisa+prepared[1].retailPaisa);
+  });
+  await t.test("a timeout on a combo's second component pauses the rest and never repeats accepted work",async()=>{
+    const order=await createOrder(await input("COMBO_CREATOR_STARTER",1),customer);const sent=adds.length;const before=(await accountData(customer)).balancePaisa;
+    timeoutService=1914;try {await runFulfillment({orderId:order.id});} finally {timeoutService=null;}
+    const uncertain=await jobs(order.id);assert.deepEqual(uncertain.map(j=>j.state),["submitted","unknown","ready"]);
+    assert.equal(await state(order.id),"needs_attention");assert.equal(adds.length,sent+2);
+    await runFulfillment({orderId:order.id});assert.equal(adds.length,sent+2);assert.equal((await accountData(customer)).balancePaisa,before);
+    await reconcileProviderOrder(order.id,uncertain[1].id,String(counter),owner.id);
+    await runFulfillment({orderId:order.id});assert.equal(adds.length,sent+3);assert.equal((await jobs(order.id)).filter(j=>j.providerOrderId).length,3);
+  });
+  await t.test("a partial status with an empty or malformed remaining count cannot finalize or under-refund a combo component",async()=>{
+    const order=await createOrder(await input("COMBO_VIRAL_PACK",1),customer);await runFulfillment({orderId:order.id});
+    const prepared=await jobs(order.id);const before=(await accountData(customer)).balancePaisa;
+    for(const remains of [null,"",false]){
+      providerOrders.set(prepared[1].providerOrderId,{status:"Partial",remains,currency:"NPR"});
+      await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[order.id]);
+      await runFulfillment({orderId:order.id});
+      assert.equal((await jobs(order.id))[1].state,"submitted");assert.equal((await accountData(customer)).balancePaisa,before);
+    }
+    providerOrders.set(prepared[1].providerOrderId,{status:"Partial",remains:"500",currency:"NPR"});
+    await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[order.id]);await runFulfillment({orderId:order.id});
+    assert.equal((await jobs(order.id))[1].refundedPaisa,Math.floor(prepared[1].retailPaisa*500/2000));
+  });
+  await t.test("partial delivery of one combo component refunds its undelivered fraction exactly once",async()=>{
+    const order=await createOrder(await input("COMBO_VIRAL_PACK",1),customer);await runFulfillment({orderId:order.id});
+    const prepared=await jobs(order.id);const before=(await accountData(customer)).balancePaisa;
+    for(const [index,job] of prepared.entries())providerOrders.set(job.providerOrderId,{status:index===1?"Partial":"Completed",remains:index===1?500:0,currency:"NPR"});
+    await db.query('UPDATE "appFulfillment" SET "lastCheckedAt"=NULL WHERE "orderId"=$1',[order.id]);
+    await runFulfillment({orderId:order.id});assert.equal(await state(order.id),"partial");
+    const refund=Math.floor(prepared[1].retailPaisa*500/2000);
+    assert.equal((await accountData(customer)).balancePaisa,before+refund);await runFulfillment({orderId:order.id});
+    assert.equal((await accountData(customer)).balancePaisa,before+refund);assert.equal((await jobs(order.id)).reduce((n,j)=>n+j.refundedPaisa,0),refund);
   });
   await t.test("insufficient provider balance is queued for safe retry without duplicate customer debit",async()=>{
     const order=await createOrder(await input(),customer);const count=adds.length;balance=0;await runFulfillment({orderId:order.id});

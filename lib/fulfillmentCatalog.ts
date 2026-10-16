@@ -7,7 +7,7 @@ import type { CatalogItem } from "./catalog";
 import type { DeliveryPlan } from "./delivery";
 
 export type ProviderService = { service: number; name: string; type: string; category: string; rate: number; min: number; max: number; dripfeed?: boolean };
-export type DeliveryTarget = { key: string; platform: string; label: string };
+export type DeliveryTarget = { key: string; platform: string; label: string; help?: string };
 export type FulfillmentStep = { serviceId: number; name: string; platform: string; quantity: number; runs: number; interval: number; link: string; costPaisa: number; billingDivisor: 1000 };
 const master = MASTER_SERVICE_CATALOG;
 export const savedProviderCatalog: ProviderService[] = snapshot;
@@ -31,17 +31,17 @@ function targetKind(id: string) {
   return "content";
 }
 export function deliveryTargets(item: CatalogItem): DeliveryTarget[] {
-  if (item.kind === "service") return [{ key: item.platform!, platform: item.platform!, label: item.platform + " profile, page or video link" }];
+  if (item.kind === "service") return [{ key: item.platform!, platform: item.platform!, label: item.platform + " profile, page or video link", ...(item.id === "FB_08" ? { help: "This watch-time service requires a public 3-hour Facebook video. Check the video duration before paying." } : {}) }];
   const targets = new Map<string, DeliveryTarget>();
   for (const step of item.apiSteps ?? []) {
     const service = master.find(s => s.suvakrioServiceId === step.serviceId);
     if (!service) continue;
     const key = service.platform + ":" + targetKind(service.id);
-    targets.set(key, { key, platform: service.platform, label: service.platform + (targetKind(service.id) === "profile" ? " profile, page or channel link" : " post, reel or video link") });
+    targets.set(key, { key, platform: service.platform, label: service.platform + (targetKind(service.id) === "profile" ? " profile, page or channel link" : " post, reel or video link"), ...(service.id === "FB_08" ? { help: "This watch-time service requires a public 3-hour Facebook video. Check the video duration before paying." } : {}) });
   }
   return [...targets.values()];
 }
-export function automaticRetailCatalog(providers: readonly ProviderService[], markup = configuredMarkup()) {
+export function automaticRetailCatalog(providers: readonly ProviderService[], markup = configuredMarkup(), balancePaisa = Number.POSITIVE_INFINITY) {
   const services = buildConfiguredCatalog(master, providers, mappings).map(item => {
     const configured = master.find(s => s.id === item.id)!;
     const provider = providers.find(p => p.service === item.providerServiceId);
@@ -59,7 +59,7 @@ export function automaticRetailCatalog(providers: readonly ProviderService[], ma
       if (!configured || !item?.automaticDeliveryAvailable || !provider || step.quantity / multiplier < provider.min || step.quantity / multiplier > provider.max || step.quantity % multiplier !== 0) { available = false; continue; }
       cost += providerCostPaisa(configured.id, step.quantity, provider);
     }
-    return { id: bundle.id, kind: "package", packageCode: String.fromCharCode(65 + index), name: bundleCopy[bundle.id]?.name ?? bundle.name, badge: bundleCopy[bundle.id]?.badge ?? bundle.badge, target: bundleCopy[bundle.id]?.target ?? bundle.target, inclusions: bundleCopy[bundle.id]?.inclusions ?? bundle.features, apiSteps: bundle.apiSteps, price: available ? Math.ceil(cost * (1 + markup / 100)) / 100 : bundle.priceNpr, automaticDeliveryAvailable: available };
+    return { id: bundle.id, kind: "package", packageCode: String.fromCharCode(65 + index), name: bundleCopy[bundle.id]?.name ?? bundle.name, badge: bundleCopy[bundle.id]?.badge ?? bundle.badge, target: bundleCopy[bundle.id]?.target ?? bundle.target, inclusions: bundleCopy[bundle.id]?.inclusions ?? bundle.features, apiSteps: bundle.apiSteps, price: available ? Math.ceil(cost * (1 + markup / 100)) / 100 : bundle.priceNpr, automaticDeliveryAvailable: available && cost <= balancePaisa };
   });
   return { services, packages };
 }

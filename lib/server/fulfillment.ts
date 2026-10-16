@@ -95,7 +95,7 @@ async function poll(db: Database, scope: Scope) {
       } catch (error) { await db.query("ROLLBACK"); throw error; }
       continue;
     }
-    const parsed = z.object({ status: z.string().max(100), remains: z.coerce.number().int().nonnegative().optional(), currency: z.string().optional() }).safeParse(result);
+    const parsed = z.object({ status: z.string().max(100), remains: z.preprocess(value => value === null || (typeof value === "string" && !value.trim()) ? undefined : value, z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative())]).optional()), currency: z.string().optional() }).safeParse(result);
     if (!parsed.success || (parsed.data.currency && parsed.data.currency.toUpperCase() !== "NPR")) continue;
     const status = parsed.data.status.toLowerCase().replace(/[ _-]/g, "");
     const state = status === "completed" ? "completed" : ["cancelled", "canceled", "refunded"].includes(status) ? "cancelled" : status === "partial" ? "partial" : "submitted";
@@ -107,6 +107,37 @@ async function poll(db: Database, scope: Scope) {
       await db.query('UPDATE "appFulfillment" SET state=$1,"providerStatus"=$2,remains=$3,"lastCheckedAt"=NOW(),"updatedAt"=NOW() WHERE id=$4 AND state=\'submitted\'', [state, safeStatus, remains, job.id]);
       await updateAggregate(db, job.orderId); await db.query("COMMIT");
     } catch (error) { await db.query("ROLLBACK"); throw error; }
+  }
+}
+function verifiedJobCost(job: Job, catalog: Awaited<ReturnType<typeof providerServices>>) {
+  const total = job.payload.quantity * job.payload.runs;
+  const service = catalog.find(service => service.service === job.payload.serviceId);
+  if (!service || !/^default$/i.test(service.type) || !Number.isSafeInteger(job.payload.quantity) || job.payload.quantity < service.min || !Number.isSafeInteger(job.payload.runs) || job.payload.runs < 1 || !Number.isSafeInteger(total) || total > service.max || job.payload.billingDivisor !== 1000 || (job.payload.runs > 1 && service.dripfeed === false)) throw new ProviderError("rejected", "This service or quantity is no longer available.");
+  const cost = Math.ceil(service.rate * 100 * total / job.payload.billingDivisor);
+  if (!Number.isSafeInteger(cost) || cost <= 0 || cost > job.retailPaisa) throw new ProviderError("rejected", "The provider price changed before delivery could start.");
+  return cost;
+}
+async function preflightBundle(db: Database, orderId: string): Promise<boolean> {
+  const jobs = (await db.query<Job>('SELECT f.* FROM "appFulfillment" f JOIN "appOrder" o ON o.id=f."orderId" WHERE f."orderId"=$1 AND o."itemKind"=\'package\' ORDER BY f.step', [orderId])).rows;
+  // Submitted components cannot be undone. Check a whole untouched package before
+  // its first external submission; subsequent work retains per-component checks.
+  if (jobs.length < 2 || !jobs.every(job => job.state === "ready" && !job.providerOrderId)) return true;
+  try {
+    const catalog = await providerServices({ fresh: true });
+    const cost = jobs.reduce((sum, job) => sum + verifiedJobCost(job, catalog), 0);
+    if (!Number.isSafeInteger(cost) || await providerBalance() < cost) throw new ProviderError("balance", "The provider needs funds for the full package. Your order is saved and will retry automatically.");
+    return true;
+  } catch (error) {
+    const rejected = error instanceof ProviderError && error.code === "rejected";
+    const message = rejected ? "A package component is unavailable or its price changed. This package was not started. Account funds will be returned to your wallet." : "Automatic delivery is waiting until the full package can start. Your paid order is saved and will retry automatically.";
+    await db.query("BEGIN");
+    try {
+      await db.query('UPDATE "appFulfillment" SET state=$1,message=$2,"nextAttemptAt"=NOW()+INTERVAL \'5 minutes\',"updatedAt"=NOW() WHERE "orderId"=$3 AND state=\'ready\' AND "providerOrderId" IS NULL', [rejected ? "rejected" : "ready", message, orderId]);
+      await updateAggregate(db, orderId);
+      await audit(db, orderId, rejected ? "package_preflight_rejected" : "package_preflight_waiting", rejected ? "No package components were submitted; undelivered account funds returned." : "No package components submitted; waiting for full-package availability and balance.");
+      await db.query("COMMIT");
+    } catch (issue) { await db.query("ROLLBACK"); throw issue; }
+    return false;
   }
 }
 export async function runFulfillment(scope: Scope = {}) {
@@ -121,16 +152,18 @@ export async function runFulfillment(scope: Scope = {}) {
     for (const job of stranded) { await db.query("BEGIN"); await updateAggregate(db, job.orderId); await db.query("COMMIT"); }
     await initializeOldQueue(db, scope);
     try { await poll(db, scope); } catch { console.error("Automatic delivery status temporarily unavailable."); }
-    const jobs = (await db.query<Job>(`SELECT f.* FROM "appFulfillment" f JOIN "appOrder" o ON o.id=f."orderId" WHERE ${where.clause} AND o.status IN ('queued','submitted','submitting','processing') AND f.state='ready' AND f."nextAttemptAt"<=NOW() ORDER BY f."createdAt",f.step LIMIT 50`, where.values)).rows;
+    const jobs = (await db.query<Job & { itemKind: string }>(`SELECT f.*,o."itemKind" FROM "appFulfillment" f JOIN "appOrder" o ON o.id=f."orderId" WHERE ${where.clause} AND o.status IN ('queued','submitted','submitting','processing') AND f.state='ready' AND f."nextAttemptAt"<=NOW() ORDER BY f."createdAt",f.step LIMIT 50`, where.values)).rows;
+    const bundleChecks = new Map<string, boolean>();
     for (const job of jobs) {
       if (Date.now() - started > 25000 || !await renewFulfillmentLease(db, lease)) break;
+      if (job.itemKind === "package") {
+        if (!bundleChecks.has(job.orderId)) bundleChecks.set(job.orderId, await preflightBundle(db, job.orderId));
+        if (!bundleChecks.get(job.orderId)) continue;
+      }
       const total = job.payload.quantity * job.payload.runs;
       try {
         const catalog = await providerServices();
-        const service = catalog.find(service => service.service === job.payload.serviceId);
-        if (!service || !/^default$/i.test(service.type) || job.payload.quantity < service.min || total > service.max || (job.payload.runs > 1 && service.dripfeed === false)) throw new ProviderError("rejected", "This service or quantity is no longer available.");
-        const cost = Math.ceil(service.rate * 100 * total / job.payload.billingDivisor);
-        if (cost > job.retailPaisa) throw new ProviderError("rejected", "The provider price changed before delivery could start.");
+        const cost = verifiedJobCost(job, catalog);
         if (await providerBalance() < cost) throw new ProviderError("balance", "The provider needs funds. Your order will retry automatically.");
       } catch (error) {
         const rejected = error instanceof ProviderError && error.code === "rejected";
