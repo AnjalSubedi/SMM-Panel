@@ -40,9 +40,11 @@ export async function providerRequest(action: "services" | "balance" | "add" | "
     } else {
       try { response = await fetch("https://suvakriosmm.com/api/v2", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), cache: "no-store", redirect: "error", signal }); }
       catch (error) {
-        if (safeCode(error) !== "ENOTFOUND") throw error;
-        // DNS failed before connecting: no provider request was sent. Give DNS
-        // recovery its own bounded budget instead of an almost-expired signal.
+        const code = safeCode(error);
+        const readTimeout = action !== "add" && (code === "UND_ERR_CONNECT_TIMEOUT" || code === "ETIMEDOUT");
+        if (code !== "ENOTFOUND" && !readTimeout) throw error;
+        // DNS failures happen before connecting. Read-only checks can also
+        // recover from connection timeouts; uncertain paid add calls never retry.
         response = await requestProviderWithPublicDns(form.toString(), AbortSignal.timeout(15000), phase => { stage = phase; });
       }
     }
@@ -93,7 +95,10 @@ export async function liveRetailCatalog() {
   const catalog = await providerServices();
   // An underfunded combo must be unavailable before showing a payment QR or
   // debiting a wallet. Dispatch rechecks because these funds are not reserved.
-  return automaticRetailCatalog(catalog, undefined, await providerBalance());
+  let balance;
+  try { balance = await providerBalance(); }
+  catch (error) { await recordCatalogFailure(error); throw error; }
+  return automaticRetailCatalog(catalog, undefined, balance);
 }
 export async function providerBalance() {
   const value = z.object({ balance: z.coerce.number().nonnegative(), currency: z.string() }).safeParse(await providerRequest("balance"));

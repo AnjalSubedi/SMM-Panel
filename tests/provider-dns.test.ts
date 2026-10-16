@@ -53,6 +53,18 @@ test("DNS fallback recovers the Vercel failure without weakening TLS or repeatin
       await assert.rejects(providerRequest("add",{service:1728}),e=>e instanceof ProviderError && e.code==="ambiguous");assert.equal(nativeCalls,0);
     }
   });
+  await t.test("read-only connection timeouts can recover but add timeouts and TLS failures never retry",async()=>{
+    for(const action of ["balance","services","status"] as const)for(const code of ["UND_ERR_CONNECT_TIMEOUT","ETIMEDOUT"]){
+      reset();globalThis.fetch=async url=>{if(String(url)===endpoint)throw dnsFailure(code);return json({Status:0,Answer:[{type:1,data:"93.184.216.34",TTL:120}]});};
+      await providerRequest(action);assert.equal(nativeCalls,1);
+    }
+    for(const action of ["balance","add"] as const){
+      reset();globalThis.fetch=async()=>{throw dnsFailure("CERT_HAS_EXPIRED");};
+      await assert.rejects(providerRequest(action));assert.equal(nativeCalls,0);
+    }
+    reset();globalThis.fetch=async()=>{throw dnsFailure("UND_ERR_CONNECT_TIMEOUT");};
+    await assert.rejects(providerRequest("add"),e=>e instanceof ProviderError&&e.code==="ambiguous");assert.equal(nativeCalls,0);
+  });
   await t.test("both trusted resolvers fail closed on private addresses",async()=>{
     reset();let dnsCalls=0;globalThis.fetch=async url=>{if(String(url)===endpoint)throw dnsFailure();dnsCalls++;return json({Status:0,Answer:[{type:1,data:"127.0.0.1",TTL:120},{type:1,data:"10.0.0.1",TTL:120}]});};
     await assert.rejects(providerRequest("balance"),e=>e instanceof ProviderError && e.code==="unavailable");assert.equal(dnsCalls,2);assert.equal(nativeCalls,0);
