@@ -63,7 +63,7 @@ Browser and HTTP QA instructions are in [the setup guide](docs/ACCOUNTS_SETUP.md
 
 Internal routes use Next.js client navigation so the header, profile menu and notification state stay mounted. Account and auth routes stream loading placeholders; checkout code loads on demand and is warmed when a customer starts selecting a service. Wallet and account responses remain private and uncached. Forced refreshes after payments bypass in-flight background reads.
 
-The committed Vercel function region is Singapore (sin1), matching the current Neon database region. Revisit regions in vercel.json if the database moves. The additive 003-performance migration indexes account notifications and admin history; the existing deployment build runs it automatically. Run timing measurements against a production build rather than next dev, which compiles routes on demand.
+The committed Vercel function region is Mumbai (bom1). It passed the production provider-catalog check after Frankfurt experienced connection timeouts, and is close to the current Singapore Neon database. Revalidate both provider connectivity and database latency before changing regions. The additive 003-performance migration indexes account notifications and admin history; the existing deployment build runs it automatically. Run timing measurements against a production build rather than next dev, which compiles routes on demand.
 
 ## PostgreSQL and existing data
 
